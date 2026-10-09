@@ -11,6 +11,7 @@ Routes
     POST /systems/{id}/readings               save readings (after the owner checks them)
     POST /systems/{id}/readings/delete        remove one reading
     POST /systems/{id}/events                 log a cleaning or a note
+    GET  /systems/{id}/outlook                next two days: expected output, smog and rain forecast
     POST /systems/{id}/alerts                 subscribe an email to alerts (Amazon SNS)
     POST /systems/{id}/alerts/test            send today's check right now
     POST /ask                                 helper: questions in English or Hindi (Amazon Bedrock)
@@ -80,7 +81,7 @@ def num(params: dict, key: str, default=None, lo=None, hi=None) -> float:
 
 # --------------------------------------------------------------------------- Plan
 def health(_e, _p, _m):
-    return {"ok": True, "service": "suryawatch", "stage": 3, "storage": "aws" if store.on_aws() else "local",
+    return {"ok": True, "service": "suryawatch", "stage": 4, "storage": "aws" if store.on_aws() else "local",
             "alerts": "sns" if alerts.topic() else "local"}
 
 
@@ -162,6 +163,10 @@ def add_event(event, _p, m):
     return watch.add_event(m["sid"], body_of(event))
 
 
+def outlook(_e, _p, m):
+    return watch.outlook(m["sid"])
+
+
 def subscribe_alerts(event, _p, m):
     watch.get_system(m["sid"])
     return alerts.subscribe(m["sid"], body_of(event).get("email"))
@@ -190,6 +195,7 @@ ROUTES = [
     ("POST", rf"/systems/{SID}/readings", save_readings),
     ("POST", rf"/systems/{SID}/readings/delete", delete_reading),
     ("POST", rf"/systems/{SID}/events", add_event),
+    ("GET", rf"/systems/{SID}/outlook", outlook),
     ("POST", rf"/systems/{SID}/alerts", subscribe_alerts),
     ("POST", rf"/systems/{SID}/alerts/test", test_alert),
     ("POST", r"/ask", ask),

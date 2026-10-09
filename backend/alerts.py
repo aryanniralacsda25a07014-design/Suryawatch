@@ -64,7 +64,8 @@ def send(sid: str, subject: str, message: str) -> str:
     return "written to data/outbox/alerts.log"
 
 
-def compose(system: dict, verdict: dict, app_url: str | None = None, hindi: str | None = None) -> tuple[str, str]:
+def compose(system: dict, verdict: dict, app_url: str | None = None, hindi: str | None = None,
+            tail: str = "") -> tuple[str, str]:
     """Subject and plain-text body for a day's verdict."""
     name = system.get("name") or "your rooftop"
     subject = f"SuryaWatch: {verdict.get('title', 'Daily check')} ({name})"
@@ -73,6 +74,8 @@ def compose(system: dict, verdict: dict, app_url: str | None = None, hindi: str 
         lines += ["", f"Made today: {verdict['actual_kwh']} kWh. Today's sunlight allowed about {verdict['expected_kwh']} kWh."]
     if verdict.get("pm25") is not None:
         lines.append(f"Air today: PM2.5 {round(verdict['pm25'])} ug/m3, aerosol optical depth {verdict.get('aod')}.")
+    if tail:
+        lines += ["", tail.strip("\n")]
     if hindi:
         lines += ["", hindi]
     if app_url:

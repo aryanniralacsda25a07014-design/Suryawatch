@@ -416,6 +416,7 @@
     const facing = { 180: "south", 135: "south-east", 225: "south-west", 90: "east", 270: "west", 0: "north" }[Math.round(sys.facing)] || `${sys.facing}°`;
     $("d-meta").textContent = `${sys.kwp} kW · panels face ${facing}, ${sys.tilt}° tilt · ${sys.lat.toFixed(3)}, ${sys.lon.toFixed(3)}`;
     $("d-date").max = todayStr();
+    loadOutlook();
     await loadDay(viewDate);
   }
 
@@ -789,6 +790,42 @@
         <span>After</span><div class="track"><div class="fill" style="width:${w(c.after)}%"></div></div><span class="num">${pct(c.after)}</span>
       </div>
       <p class="hint">Share of possible output after allowing for haze. Average of ${c.days_before} day(s) before and ${c.days_after} after.</p></div>`;
+  }
+
+  const OUTLOOK = {
+    clear: { label: "Clear", cls: "good", icon: "M12 5v2M12 17v2M5 12h2M17 12h2M7.8 7.8l1.4 1.4M14.8 14.8l1.4 1.4M7.8 16.2l1.4-1.4M14.8 9.2l1.4-1.4M12 9.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5" },
+    haze: { label: "Hazy", cls: "warn", icon: "M3 9h13M5 13h15M3 17h11" },
+    smog_heavy: { label: "Heavy smog", cls: "serious", icon: "M3 8h16M5 12h15M3 16h16M6 20h10" },
+    cloudy: { label: "Cloudy", cls: "none", icon: "M7 17h10a3.5 3.5 0 0 0 0-7a5 5 0 0 0-9.6 1.4A3 3 0 0 0 7 17z" },
+    rain: { label: "Rain", cls: "none", icon: "M7 14h10a3.5 3.5 0 0 0 0-7a5 5 0 0 0-9.6 1.4A3 3 0 0 0 7 14zM9 17l-1 3M13 17l-1 3M17 17l-1 3" },
+  };
+
+  async function loadOutlook() {
+    const box = $("d-outlook");
+    try {
+      const o = await api(`/systems/${sys.system_id}/outlook`);
+      box.hidden = false;
+      box.innerHTML = `<h2>Next two days</h2><p class="hint">From the sunlight, cloud, rain and air-quality forecast for this roof.</p>
+        <div class="outlook">${o.days.map((d, i) => {
+          const st = OUTLOOK[d.code] || OUTLOOK.clear;
+          const nice = new Date(d.date + "T12:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" });
+          const facts = [];
+          if (d.sky_factor != null) facts.push(`sunlight ${Math.round(d.sky_factor * 100)}% of a clear day`);
+          if (d.haze_loss >= 0.02) facts.push(`haze about ${Math.round(d.haze_loss * 100)}%`);
+          if (d.pm25 != null) facts.push(`PM2.5 ${Math.round(d.pm25)}`);
+          if ((d.rain_mm || 0) >= 0.5) facts.push(`rain ${Math.round(d.rain_mm)} mm${d.rain_prob_pct != null ? ` (${d.rain_prob_pct}% chance)` : ""}`);
+          return `<div class="day">
+            <div class="day-name">${i === 0 ? "Tomorrow" : "Day after"} · ${esc(nice)}</div>
+            <span class="badge ${st.cls}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${st.icon}"/></svg>${st.label}</span>
+            <div class="day-kwh num">${d.likely_kwh} kWh</div>
+            <div class="hint" style="margin-top:0">expected from your ${sys.kwp} kW system</div>
+            <p class="day-msg"><b>${esc(d.title)}.</b> ${esc(d.message)}</p>
+            <p class="hint">${esc(facts.join(" · "))}</p></div>`;
+        }).join("")}</div>`;
+    } catch (ex) {
+      box.hidden = false;
+      box.innerHTML = `<h2>Next two days</h2><p class="hint">The forecast is not available right now (${esc(ex.message)}).</p>`;
+    }
   }
 
   function renderPromise(p) {

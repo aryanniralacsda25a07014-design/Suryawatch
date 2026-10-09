@@ -296,3 +296,61 @@ def day_view(sid: str, date: str | None = None) -> dict:
         "instant": verdict.instant_check(hourly, readings),
         "events": [e for e in events if e["time"][:10] <= date][-10:],
     }
+
+
+# --------------------------------------------------------------------------- outlook (tomorrow's sun and smog)
+def outlook(sid: str, days: int = 2) -> dict:
+    """Forecast for the next `days` days: expected output, haze from the air-quality forecast, rain, and advice."""
+    system = get_system(sid)
+    base = datetime.now(solar.IST).date()
+    dates = [(base + timedelta(days=i)).isoformat() for i in range(1, days + 1)]
+    rows = weather.sunlight_hourly(system["lat"], system["lon"], system["tilt"], system["facing"], dates[0], dates[-1])
+    hourly = solar.expected_hourly(system, rows)
+    try:
+        air = weather.air_quality_hourly(system["lat"], system["lon"], dates[0], dates[-1])
+    except Exception as exc:
+        print(f"air-quality forecast unavailable: {exc}")
+        air = []
+    try:
+        rain_days = {d["date"]: d for d in weather.rain_forecast(system["lat"], system["lon"], days + 1)}
+    except Exception as exc:
+        print(f"rain forecast unavailable: {exc}")
+        rain_days = {}
+    out = []
+    for d in dates:
+        expected = solar.expected_energy_until(hourly, d)
+        sky = solar.day_sky_summary(hourly, d)
+        aod = verdict.daylight_mean(air, d, "aod")
+        pm25 = verdict.daylight_mean(air, d, "pm25")
+        aqi = verdict.daylight_mean(air, d, "aqi")
+        haze = verdict.haze_loss_estimate(aod)
+        likely = expected * (1 - haze)
+        rain = rain_days.get(d, {})
+        rain_mm = rain.get("rain_mm") if rain.get("rain_mm") is not None else sky.get("rain_mm")
+        rain_prob = rain.get("rain_prob_pct")
+        out.append({"date": d, "expected_kwh": round(expected, 1), "likely_kwh": round(likely, 1),
+                    "haze_loss": round(haze, 3), "aod": aod, "pm25": pm25, "aqi": aqi,
+                    "rain_mm": rain_mm, "rain_prob_pct": rain_prob, "sky_factor": sky.get("sky_factor"),
+                    **_outlook_advice(likely, expected, haze, pm25, aqi, rain_mm, rain_prob, sky.get("sky_factor"))})
+    return {"system_id": sid, "days": out}
+
+
+def _outlook_advice(likely, expected, haze, pm25, aqi, rain_mm, rain_prob, sky_factor) -> dict:
+    kwh = f"about {likely:.1f} kWh"
+    if (rain_mm or 0) >= 5 and (rain_prob is None or rain_prob >= 50):
+        return {"code": "rain", "title": "Rain likely: a free wash",
+                "message": f"About {rain_mm:.0f} mm of rain is forecast. It will rinse the dust off, so skip cleaning "
+                           f"before it. Output will be low: {kwh}."}
+    if haze >= 0.15 or (aqi or 0) >= 200:
+        air = f"PM2.5 around {pm25:.0f}" if pm25 is not None else "very poor air"
+        return {"code": "smog_heavy", "title": "Heavy smog expected",
+                "message": f"Haze may block about {haze * 100:.0f}% of the sunlight ({air}). Expect {kwh} instead of "
+                           f"{expected:.1f} kWh. Low output will not mean your panels are dirty or faulty."}
+    if haze >= 0.08:
+        return {"code": "haze", "title": "Hazy day expected",
+                "message": f"Haze may block about {haze * 100:.0f}% of the sunlight. Expect {kwh}."}
+    if sky_factor is not None and sky_factor < 0.55:
+        return {"code": "cloudy", "title": "Cloudy day expected", "message": f"Clouds will cut output. Expect {kwh}."}
+    return {"code": "clear", "title": "Clear, sunny day expected",
+            "message": f"Expect {kwh}. A good day to see your panels at their best: photograph the display "
+                       f"at about 1 PM and 5:45 PM."}

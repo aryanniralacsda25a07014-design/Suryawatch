@@ -231,3 +231,9 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--green
 .promise-title { font-weight: 600; }
 .promise-verdict { margin: 8px 0 0; font-weight: 600; color: var(--green-deep); }
 .promise-verdict.behind { color: var(--serious); }
+.outlook { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
+@media (max-width: 640px) { .outlook { grid-template-columns: 1fr; } }
+.outlook .day { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: var(--paper); }
+.day-name { font-weight: 600; margin-bottom: 8px; }
+.day-kwh { font-size: 30px; font-weight: 700; margin-top: 10px; line-height: 1.1; }
+.day-msg { margin: 10px 0 4px; font-size: 15px; }

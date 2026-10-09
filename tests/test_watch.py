@@ -236,5 +236,43 @@ class PromiseTests(WatchApiTests):
         self.assertEqual(p["all"]["days"], 1)
 
 
+class OutlookTests(WatchApiTests):
+    def test_clear_outlook(self):
+        sid = self.make_system()
+        code, body = self.call("GET", f"/systems/{sid}/outlook")
+        self.assertEqual(code, 200, body)
+        self.assertEqual(len(body["days"]), 2)
+        self.assertEqual(body["days"][0]["code"], "clear")
+        self.assertGreater(body["days"][0]["likely_kwh"], 5)
+
+    def test_smog_and_rain_outlook(self):
+        sid = self.make_system()
+        weather.air_quality_hourly = lambda lat, lon, s, e: [
+            {"time": f"{d}T{h:02d}:00", "pm25": 220, "aqi": 270, "aod": 1.3, "dust": 30}
+            for d in (s, e) for h in range(24)]
+        days = self.call("GET", f"/systems/{sid}/outlook")[1]["days"]
+        self.assertEqual(days[0]["code"], "smog_heavy")
+        self.assertLess(days[0]["likely_kwh"], days[0]["expected_kwh"])
+        first = days[0]["date"]
+        weather.rain_forecast = lambda lat, lon, n=5: [{"date": first, "rain_mm": 12, "rain_prob_pct": 80}]
+        self.assertEqual(self.call("GET", f"/systems/{sid}/outlook")[1]["days"][0]["code"], "rain")
+
+    def test_evening_email_warns_about_tomorrow(self):
+        import daily_check
+        sid = self.make_system()
+        today = watch.today()
+        hourly = solar.expected_hourly({"lat": 28.7, "lon": 77.1, "kwp": 3}, fake_sun(28.7, 77.1, 20, 180, today, today))
+        full = solar.expected_energy_until(hourly, today)
+        self.call("POST", f"/systems/{sid}/readings", {"readings": [{"time": f"{today}T18:30", "e_today_kwh": full * 0.97}]})
+        self.call("POST", f"/systems/{sid}/alerts", {"email": "owner@example.com"})
+        weather.air_quality_hourly = lambda lat, lon, s, e: [
+            {"time": f"{d}T{h:02d}:00", "pm25": 220, "aqi": 270, "aod": 1.3 if d != today else 0.35, "dust": 30}
+            for d in (s, e) for h in range(24)]
+        r = daily_check.run_for(sid)
+        self.assertEqual(r.get("tomorrow"), "smog_heavy")
+        log = open(os.path.join(self.tmp.name, "outbox", "alerts.log"), encoding="utf-8").read()
+        self.assertIn("Heavy smog expected tomorrow", log)
+
+
 if __name__ == "__main__":
     unittest.main()
