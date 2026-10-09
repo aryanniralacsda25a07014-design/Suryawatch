@@ -41,10 +41,15 @@ class WatchApiTests(unittest.TestCase):
         weather.air_quality_hourly = lambda lat, lon, s, e: [
             {"time": f"{s}T{h:02d}:00", "pm25": 60, "aqi": 120, "aod": 0.4, "dust": 10} for h in range(24)]
         weather.rain_forecast = lambda lat, lon, days=5: []
+        import planner
+        self._ghi = planner.monthly_ghi
+        planner.monthly_ghi = lambda lat, lon: (list(weather.DELHI_FALLBACK_GHI), "test")
         os.environ["SURYAWATCH_MOCK_AI"] = "1"
 
     def tearDown(self):
         weather.sunlight_hourly, weather.air_quality_hourly, weather.rain_forecast = self._orig
+        import planner
+        planner.monthly_ghi = self._ghi
         os.environ.pop("SURYAWATCH_MOCK_AI", None)
         self.tmp.cleanup()
 
@@ -189,6 +194,46 @@ class Stage3Tests(WatchApiTests):
         self.assertTrue(c["ready"], c)
         self.assertGreater(c["gain_pct"], 15)
         self.assertGreater(c["rupees_per_week"], 0)
+
+
+class PromiseTests(WatchApiTests):
+    def _promise(self, sid):
+        return self.call("GET", f"/systems/{sid}")[1]["promise"]
+
+    def test_promise_from_e_total(self):
+        import planner
+        sid = self.make_system()
+        self.assertFalse(self._promise(sid)["ready"])
+        oct_per_day = planner.monthly_yield_per_kwp(28.7, 77.1)[0][9] * 3 / 31
+        self.call("POST", f"/systems/{sid}/readings", {"readings": [
+            {"time": "2026-10-04T17:45", "e_total_kwh": 1000},
+            {"time": "2026-10-07T17:45", "e_total_kwh": round(1000 + 3 * oct_per_day * 0.8, 1)}]})
+        p = self._promise(sid)
+        self.assertTrue(p["ready"])
+        self.assertEqual(p["source"], "suryawatch")
+        self.assertEqual(p["method"], "e_total")
+        self.assertAlmostEqual(p["month"]["ratio"], 0.8, delta=0.03)
+        self.assertGreater(p["month"]["gap_rupees"], 0)
+
+    def test_installer_and_plan_promise(self):
+        code, s = self.call("POST", "/systems", {"lat": 28.7, "lon": 77.1, "kwp": 3, "promise_kwh_year": 4500})
+        self.assertEqual(self._promise(s["system_id"])["promise_kwh_year"], 4500)
+        self.assertEqual(self._promise(s["system_id"])["source"], "installer")
+        code, s2 = self.call("POST", "/systems", {"lat": 28.7, "lon": 77.1, "kwp": 3, "promise_kwh_year": 4400,
+                                                 "promise_source": "plan", "plan_id": "abc123"})
+        self.assertEqual(self._promise(s2["system_id"])["source"], "plan")
+
+    def test_promise_from_daily_readings(self):
+        sid = self.make_system()
+        date = "2026-10-08"
+        hourly = solar.expected_hourly({"lat": 28.7, "lon": 77.1, "kwp": 3}, fake_sun(28.7, 77.1, 20, 180, date, date))
+        full = solar.expected_energy_until(hourly, date)
+        self.call("POST", f"/systems/{sid}/readings", {"readings": [{"time": f"{date}T18:30", "e_today_kwh": full * 0.9}]})
+        self.call("GET", f"/systems/{sid}/day", params={"date": date})
+        p = self._promise(sid)
+        self.assertTrue(p["ready"])
+        self.assertEqual(p["method"], "daily")
+        self.assertEqual(p["all"]["days"], 1)
 
 
 if __name__ == "__main__":

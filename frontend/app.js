@@ -266,8 +266,26 @@
       </ul></details>
       <details><summary>Assumptions</summary><ul>${r.assumptions.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></details>
       <details><summary>How to apply under PM Surya Ghar</summary><ol>${PORTAL_STEPS.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></details>
-      <div class="share-row"><button type="button" id="plan-share" class="btn small ghost wa">Share this plan on WhatsApp</button></div>
+      <div class="share-row">
+        <button type="button" id="plan-watch" class="btn small">We installed this: start watching it</button>
+        <button type="button" id="plan-share" class="btn small ghost wa">Share this plan on WhatsApp</button>
+      </div>
+      <p id="plan-watch-msg" class="hint" hidden></p>
       <div id="plan-ask"></div>`;
+    $("plan-watch").onclick = async () => {
+      const msg = $("plan-watch-msg");
+      const yearly = r.yearly_bill_saving + r.yearly_gbi_first5;
+      const unit = Math.min(30, Math.max(1, r.yearly_generation_kwh ? yearly / r.yearly_generation_kwh : 6));
+      try {
+        const s = await api("/systems", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+          name: "Our rooftop", lat: r.inputs.lat, lon: r.inputs.lon, kwp: r.system_kw, tilt: 20, facing: 180,
+          unit_value: Math.round(unit * 10) / 10, promise_kwh_year: r.yearly_generation_kwh,
+          promise_source: "plan", plan_id: r.plan_id }) });
+        safeSet(STORE_KEY, s.system_id);
+        location.hash = "watch";
+        await openSystem(s.system_id);
+      } catch (ex) { msg.textContent = ex.message; msg.hidden = false; }
+    };
     $("plan-share").onclick = () => shareWhatsApp([
       "SuryaWatch solar plan",
       `${r.system_kw} kW rooftop system (about ${r.panels_approx} panels), ${n0(r.yearly_generation_kwh)} units a year`,
@@ -368,7 +386,7 @@
     try {
       const r = await api("/systems", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
         name: $("s-name").value, lat: where.lat, lon: where.lon, kwp, tilt: $("s-tilt").value, facing: $("s-facing").value,
-        unit_value: $("s-unit").value }) });
+        unit_value: $("s-unit").value, promise_kwh_year: $("s-promise").value || null }) });
       safeSet(STORE_KEY, r.system_id);
       await openSystem(r.system_id);
     } catch (ex) { err.textContent = ex.message; err.hidden = false; } finally { btn.disabled = false; }
@@ -773,12 +791,44 @@
       <p class="hint">Share of possible output after allowing for haze. Average of ${c.days_before} day(s) before and ${c.days_after} after.</p></div>`;
   }
 
+  function renderPromise(p) {
+    const box = $("d-promise");
+    if (!p) { box.hidden = true; return; }
+    box.hidden = false;
+    const src = p.source === "installer" ? `your installer's promise of ${n0(p.promise_kwh_year)} units a year`
+      : p.source === "plan" ? `your SuryaWatch plan: ${n0(p.promise_kwh_year)} units a year`
+      : `SuryaWatch's estimate for this roof: ${n0(p.promise_kwh_year)} units a year`;
+    let html = `<h2>Promised vs got</h2><p class="hint">Checked against ${esc(src)}.</p>`;
+    if (!p.ready) {
+      box.innerHTML = html + '<p class="hint">Add two photos of the Total (E-Total) screen taken a day or more apart, and SuryaWatch will compare what you got with what was promised.</p>';
+      return;
+    }
+    const nice = (t) => new Date(t.slice(0, 10) + "T12:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+    const block = (title, q) => {
+      const top = Math.max(q.promised_kwh, q.actual_kwh, 0.1);
+      const pctv = Math.round(q.ratio * 100);
+      const verdict = q.ratio >= 1.05 ? `Ahead of the promise: ${pctv}%.`
+        : q.ratio >= 0.95 ? `On track: ${pctv}% of the promise.`
+        : `Behind by ${n0(q.gap_kwh)} units (about ${inr(q.gap_rupees)}): ${pctv}% of the promise.`;
+      return `<div class="promise-block"><div class="promise-title">${esc(title)} <span class="hint">(${nice(q.first_day || q.from)} to ${nice(q.to)})</span></div>
+        <div class="clean-bars">
+          <span>Promised</span><div class="track"><div class="fill before" style="width:${(q.promised_kwh / top) * 100}%"></div></div><span class="num">${n0(q.promised_kwh)}</span>
+          <span>Got</span><div class="track"><div class="fill" style="width:${(q.actual_kwh / top) * 100}%"></div></div><span class="num">${n0(q.actual_kwh)}</span>
+        </div><p class="promise-verdict ${q.ratio < 0.95 ? "behind" : ""}">${verdict}</p></div>`;
+    };
+    if (p.month) html += block("This month so far", p.month);
+    if (p.all && (!p.month || p.all.from !== p.month.from)) html += block(p.method === "daily" ? "Days with a final reading" : "Since tracking began", p.all);
+    html += `<p class="hint">${p.method === "e_total" ? "Uses the inverter's Total counter, so days without a photo still count." : "Add Total (E-Total) photos for a more complete count."} Units are kWh.</p>`;
+    box.innerHTML = html;
+  }
+
   async function refreshSummary() {
     if (!sys) return;
     try {
       const s = await api("/systems/" + sys.system_id);
       sys = { ...sys, ...s };
       renderHistory(s);
+      renderPromise(s.promise);
       if (s.alert_emails && !$("a-msg").textContent) $("a-msg").textContent = `${s.alert_emails} email address(es) get alerts for this system.`;
     } catch (_) { /* history is optional */ }
   }

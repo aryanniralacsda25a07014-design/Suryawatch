@@ -75,6 +75,13 @@ def gbi_rate(kw: float) -> float:
     return 3.0 if kw <= 3.0 else 2.0
 
 
+def monthly_yield_per_kwp(lat: float, lon: float) -> tuple[list[float], str]:
+    """Units one kW of panels makes in each month (Jan..Dec) at this place, and the data source."""
+    ghi, source = monthly_ghi(lat, lon)
+    days = [calendar.monthrange(2026, m)[1] for m in range(1, 13)]
+    return [g * d * TILT_GAIN * PLAN_PR for g, d in zip(ghi, days)], source
+
+
 def plan(req: dict) -> dict:
     lat, lon = float(req["lat"]), float(req["lon"])
     in_delhi = (req.get("state") or "delhi").lower() == "delhi"
@@ -93,9 +100,7 @@ def plan(req: dict) -> dict:
     cost_per_kw = float(req.get("cost_per_kw") or DEFAULT_COST_PER_KW)
     export_rate = float(req.get("export_rate") or DEFAULT_EXPORT_RATE)
 
-    ghi, ghi_source = monthly_ghi(lat, lon)
-    days = [calendar.monthrange(2026, m)[1] for m in range(1, 13)]
-    kwh_per_kwp = [g * d * TILT_GAIN * PLAN_PR for g, d in zip(ghi, days)]
+    kwh_per_kwp, ghi_source = monthly_yield_per_kwp(lat, lon)
     yearly_per_kwp = sum(kwh_per_kwp)
 
     usable_area = roof_area * usable_fraction

@@ -4,6 +4,9 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
+import calendar
+
+import planner
 import solar
 import store
 import verdict
@@ -47,6 +50,9 @@ def create_system(req: dict) -> dict:
         "tilt": _f(req.get("tilt"), "tilt", 0, 90) if req.get("tilt") not in (None, "") else 20.0,
         "facing": _f(req.get("facing"), "facing", 0, 360) if req.get("facing") not in (None, "") else 180.0,
         "unit_value": _f(req.get("unit_value"), "unit_value", 1, 30) or verdict.DEFAULT_UNIT_VALUE,
+        "promise_kwh_year": _f(req.get("promise_kwh_year"), "promise_kwh_year", 100, 1_000_000),
+        "plan_id": str(req.get("plan_id"))[:20] if req.get("plan_id") else None,
+        "promise_source": "plan" if req.get("promise_source") == "plan" else "installer",
         "pr_ref": solar.DEFAULT_PR,
         "created": store.now_iso(),
     }
@@ -87,12 +93,91 @@ def cleaning_effect(verdicts: list[dict], events: list[dict], unit_value: float)
             "kwh_per_day": round(gain_kwh_day, 2), "rupees_per_week": round(gain_kwh_day * 7 * unit_value, 0)}
 
 
+DAY_START, DAY_END = 6.0, 18.5      # daylight hours used to share a day's promise across partial days
+
+
+def _daylight_overlap(a, b, day) -> float:
+    """Share of `day`'s daylight (06:00-18:30) that falls between datetimes a and b."""
+    start = datetime.combine(day, datetime.min.time()).replace(tzinfo=solar.IST)
+    lo, hi = start + timedelta(hours=DAY_START), start + timedelta(hours=DAY_END)
+    overlap = (min(b, hi) - max(a, lo)).total_seconds()
+    return max(0.0, overlap) / ((DAY_END - DAY_START) * 3600)
+
+
+def promise_status(meta: dict, readings: list[dict], verdicts: list[dict]) -> dict | None:
+    """Promised units vs units actually made, for this month so far and since tracking began.
+
+    The promise is the installer's yearly figure if the owner gave one (spread over the months like the
+    sunlight), otherwise SuryaWatch's own plan for this roof. Actual units come from the inverter's
+    lifetime counter (E-Total), which stays right even when some days have no reading.
+    """
+    monthly, _src = planner.monthly_yield_per_kwp(meta["lat"], meta["lon"])
+    monthly = [m * float(meta["kwp"]) for m in monthly]
+    source = "suryawatch"
+    if meta.get("promise_kwh_year"):
+        k = float(meta["promise_kwh_year"]) / sum(monthly)
+        monthly = [m * k for m in monthly]
+        source = meta.get("promise_source") or "installer"
+    per_day = lambda d: monthly[d.month - 1] / calendar.monthrange(d.year, d.month)[1]
+
+    def promised_between(a, b) -> float:
+        total, day = 0.0, a.date()
+        while day <= b.date():
+            total += per_day(day) * _daylight_overlap(a, b, day)
+            day += timedelta(days=1)
+        return total
+
+    out = {"source": source, "promise_kwh_year": round(sum(monthly)), "unit_value": float(meta.get("unit_value") or 6)}
+    totals = sorted(((solar.parse_local(r["time"]), float(r["e_total_kwh"])) for r in readings
+                     if r.get("e_total_kwh") is not None), key=lambda x: x[0])
+    periods = {}
+    if len(totals) >= 2:
+        end_t, end_v = totals[-1]
+        month_start = end_t.replace(day=1, hour=0, minute=0)
+        before = [t for t in totals if t[0] < month_start]
+        in_month = [t for t in totals if t[0] >= month_start]
+        start = before[-1] if before else in_month[0]
+        for key, (s_t, s_v) in (("month", start), ("all", totals[0])):
+            if end_t - s_t >= timedelta(hours=20) and end_v >= s_v:
+                promised = promised_between(s_t, end_t)
+                # an evening baseline reading means counting really starts the next morning
+                first_day = (s_t + timedelta(days=1)).date() if s_t.hour >= 17 else s_t.date()
+                if key == "month":
+                    first_day = max(first_day, month_start.date())
+                periods[key] = {"from": s_t.strftime("%Y-%m-%dT%H:%M"), "to": end_t.strftime("%Y-%m-%dT%H:%M"),
+                                "first_day": first_day.isoformat(),
+                                "actual_kwh": round(end_v - s_v, 1), "promised_kwh": round(promised, 1),
+                                "ratio": round((end_v - s_v) / promised, 3) if promised > 0 else None}
+        out["method"] = "e_total"
+    if not periods:
+        days = [v for v in verdicts if v.get("final") and v.get("actual_kwh") is not None]
+        if days:
+            actual = sum(v["actual_kwh"] for v in days)
+            promised = sum(per_day(datetime.fromisoformat(v["date"])) for v in days)
+            periods["all"] = {"from": days[0]["date"], "to": days[-1]["date"], "days": len(days),
+                              "actual_kwh": round(actual, 1), "promised_kwh": round(promised, 1),
+                              "ratio": round(actual / promised, 3) if promised > 0 else None}
+            out["method"] = "daily"
+    if not periods:
+        return {**out, "ready": False}
+    for p in periods.values():
+        p["gap_kwh"] = round(p["promised_kwh"] - p["actual_kwh"], 1)
+        p["gap_rupees"] = round(p["gap_kwh"] * out["unit_value"], 0)
+    return {**out, "ready": True, **periods}
+
+
 def system_summary(sid: str) -> dict:
     meta = get_system(sid)
     verdicts = [{k: v for k, v in x.items() if k not in ("pk", "sk")} for x in store.query(f"SYSTEM#{sid}", "VERDICT#")]
     events = [{k: v for k, v in x.items() if k not in ("pk", "sk")} for x in store.query(f"SYSTEM#{sid}", "EVENT#")]
     alert_cfg = store.get(f"SYSTEM#{sid}", "ALERTS") or {}
-    return {**meta, "verdicts": verdicts[-60:], "events": events[-20:],
+    readings = [{k: v for k, v in x.items() if k not in ("pk", "sk")} for x in store.query(f"SYSTEM#{sid}", "READING#")]
+    try:
+        promise = promise_status(meta, readings, verdicts)
+    except Exception as exc:      # the promise card is optional; never break the dashboard over it
+        print(f"promise check failed: {exc}")
+        promise = None
+    return {**meta, "verdicts": verdicts[-60:], "events": events[-20:], "promise": promise,
             "cleaning": cleaning_effect(verdicts, events, float(meta.get("unit_value") or verdict.DEFAULT_UNIT_VALUE)),
             "alert_emails": len(alert_cfg.get("emails", []))}
 
