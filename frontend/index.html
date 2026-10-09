@@ -166,7 +166,8 @@
             <h2>Add readings</h2>
             <p class="hint">Photograph every screen the inverter shows: power now, today's energy (E-Today) and total energy. Upload original photos, not WhatsApp copies, so the time they were taken comes through.</p>
             <div class="upload-row">
-              <label class="btn primary file-btn">Upload display photos<input type="file" id="r-files" accept="image/jpeg,image/png,image/webp" multiple hidden></label>
+              <label class="btn primary file-btn">Take a photo<input type="file" id="r-camera" accept="image/*" capture="environment" hidden></label>
+              <label class="btn ghost file-btn">Upload photos<input type="file" id="r-files" accept="image/jpeg,image/png,image/webp" multiple hidden></label>
               <button type="button" id="r-manual" class="btn ghost">Type a reading</button>
             </div>
             <div id="r-review"></div>

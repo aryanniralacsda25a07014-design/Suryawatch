@@ -213,6 +213,12 @@
     });
   }
 
+  // ------------------------------------------------------------------ sharing (WhatsApp)
+  const appLink = (q) => `${location.origin}${location.pathname}${q || ""}`;
+  function shareWhatsApp(text) {
+    window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
+  }
+
   // ------------------------------------------------------------------ plan
   const PORTAL_STEPS = [
     "Register on pmsuryaghar.gov.in with your state, electricity company and consumer number.",
@@ -260,7 +266,15 @@
       </ul></details>
       <details><summary>Assumptions</summary><ul>${r.assumptions.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></details>
       <details><summary>How to apply under PM Surya Ghar</summary><ol>${PORTAL_STEPS.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></details>
+      <div class="share-row"><button type="button" id="plan-share" class="btn small ghost wa">Share this plan on WhatsApp</button></div>
       <div id="plan-ask"></div>`;
+    $("plan-share").onclick = () => shareWhatsApp([
+      "SuryaWatch solar plan",
+      `${r.system_kw} kW rooftop system (about ${r.panels_approx} panels), ${n0(r.yearly_generation_kwh)} units a year`,
+      `Cost after subsidy: ${inr(r.net_cost)} (subsidy ${inr(r.central_subsidy + r.state_subsidy)})`,
+      `Benefit: about ${inr(r.monthly_benefit_avg)} a month; ${r.payback_years == null ? "payback over 25 years" : `pays back in ${r.payback_years} years`}`,
+      `Plan your own roof: ${appLink("#plan")}`,
+    ].join("\n"));
     helperBox($("plan-ask"), "plan", () => ({ system_kw: r.system_kw, yearly_units: r.yearly_generation_kwh, net_cost: r.net_cost,
       central_subsidy: r.central_subsidy, state_subsidy: r.state_subsidy, monthly_benefit: r.monthly_benefit_avg,
       payback_years: r.payback_years, monthly_units: r.inputs.monthly_units, state: r.inputs.state, roof_m2: r.inputs.roof_area_m2,
@@ -426,7 +440,15 @@
       <p>${esc(v.message)}</p>
       ${stats}
       <p class="hint">${d.is_today ? "Today" : "That day"} a ${sys.kwp} kW system here should make about <b>${total != null ? total.toFixed(1) : "–"} kWh</b> in total.${sky} ${air}</p>
+      <div class="share-row"><button type="button" id="v-share" class="btn small ghost wa">Share on WhatsApp</button></div>
       <div id="watch-ask"></div>`;
+    $("v-share").onclick = () => {
+      const nice = new Date(d.date + "T12:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+      const lines = [`SuryaWatch: ${sys.name}, ${nice}`, v.title, v.message];
+      if (v.actual_kwh != null) lines.push(`Made ${v.actual_kwh} kWh; the sunlight allowed about ${v.expected_kwh} kWh.`);
+      lines.push(appLink(`?system=${sys.system_id}&date=${d.date}#watch`));
+      shareWhatsApp(lines.join("\n"));
+    };
     helperBox($("watch-ask"), "watch", () => ({ date: d.date, system_kw: sys.kwp, result: v.title, explanation: v.message,
       made_kwh: v.actual_kwh, sunlight_allowed_kwh: v.expected_kwh, haze_loss: v.haze_loss, panel_loss: v.panel_loss,
       rupees_lost_per_week: v.rupees_lost_per_week, pm25: v.pm25, aerosol_optical_depth: v.aod }));
@@ -580,7 +602,7 @@
     renderReview();
   };
 
-  $("r-files").onchange = async (e) => {
+  async function handleFiles(e) {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
     $("r-error").hidden = true;
@@ -611,7 +633,9 @@
       }
       renderReview();
     }
-  };
+  }
+  $("r-files").onchange = handleFiles;
+  $("r-camera").onchange = handleFiles;
 
   $("r-save").onclick = async () => {
     const err = $("r-error");
@@ -778,7 +802,10 @@
   };
 
   function initWatch() {
-    const fromUrl = new URLSearchParams(location.search).get("system");
+    const qs = new URLSearchParams(location.search);
+    const fromUrl = qs.get("system");
+    const day = qs.get("date");
+    if (day && /^\d{4}-\d{2}-\d{2}$/.test(day) && day <= todayStr()) viewDate = day;
     if (fromUrl) safeSet(STORE_KEY, fromUrl);
     const id = fromUrl || safeGet(STORE_KEY);
     if (id && API) openSystem(id);

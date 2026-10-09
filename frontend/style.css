@@ -225,3 +225,5 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--green
 .clean-bars .fill.before { background: #a9d3b6; }
 .open-existing { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 14px; }
 .open-existing .field { margin-bottom: 6px; }
+.share-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 2px; }
+.btn.wa::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #25d366; margin-right: 7px; vertical-align: 1px; }
