@@ -16,6 +16,7 @@ from __future__ import annotations
 import calendar
 import math
 
+from i18n import lang_of, tr
 from weather import monthly_ghi
 
 SLABS = [(200, 3.0), (200, 4.5), (400, 6.5), (400, 7.0), (math.inf, 8.0)]
@@ -154,6 +155,7 @@ def plan(req: dict) -> dict:
         cumulative += benefit
         lifetime += benefit
 
+    L = lang_of(req.get("lang"))
     notes = []
     load = req.get("sanctioned_load_kw")
     try:
@@ -161,13 +163,11 @@ def plan(req: dict) -> dict:
     except (TypeError, ValueError):
         load = None
     if load and kw > load:
-        notes.append(f"Your sanctioned load is {load:g} kW. Many DISCOMs limit rooftop solar to the sanctioned "
-                     f"load, so you may need to raise it to {kw:g} kW or choose a smaller system. Check with your DISCOM.")
+        notes.append(tr(L, "plan.load", load=f"{load:g}", kw=f"{kw:g}"))
     if in_delhi and units <= 200:
-        notes.append("Your bill is already ₹0 under the Delhi free-200-units scheme, so most of your "
-                     "return comes from the generation incentive and surplus export credit.")
+        notes.append(tr(L, "plan.zero_bill"))
     if limited_by == "roof":
-        notes.append("Your roof, not your usage, limits the system size.")
+        notes.append(tr(L, "plan.roof"))
 
     return {
         "inputs": {"lat": lat, "lon": lon, "roof_area_m2": roof_area, "usable_area_m2": round(usable_area, 1),
@@ -192,10 +192,10 @@ def plan(req: dict) -> dict:
         "sunlight_source": ghi_source,
         "notes": notes,
         "assumptions": [
-            f"{M2_PER_KW:.0f} m2 of shade-free roof per kW; {int(usable_fraction*100)}% of the roof usable",
-            f"Performance ratio {PLAN_PR}, tilt gain {TILT_GAIN}, {DEGRADATION*100:.1f}% panel ageing per year",
-            f"Installed cost Rs {cost_per_kw:,.0f} per kW before subsidy (get vendor quotes)",
-            "DERC energy slabs only; PPAC, fixed charges and tax not included (real savings are usually higher)",
-            f"Surplus units credited at Rs {export_rate:.1f} each",
+            tr(L, "as.roof", m2=f"{M2_PER_KW:.0f}", pct=f"{int(usable_fraction * 100)}"),
+            tr(L, "as.pr", pr=PLAN_PR, tilt=TILT_GAIN, deg=f"{DEGRADATION * 100:.1f}"),
+            tr(L, "as.cost", cost=f"{cost_per_kw:,.0f}"),
+            tr(L, "as.tariff"),
+            tr(L, "as.export", rate=f"{export_rate:.1f}"),
         ],
     }

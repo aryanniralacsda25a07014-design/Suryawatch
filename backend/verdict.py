@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from statistics import median
 
+from i18n import tr
 from solar import day_sky_summary, expected_energy_until, parse_local
 
 BASE_AOD = 0.4
@@ -52,8 +53,8 @@ def latest_energy_reading(readings: list[dict], date: str) -> dict | None:
 def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dict],
                  air: list[dict], previous: list[dict] | None = None,
                  days_since_clean_or_rain: int | None = None,
-                 rain_ahead: list[dict] | None = None) -> dict:
-    """Build the day's verdict.
+                 rain_ahead: list[dict] | None = None, lang: str = "en") -> dict:
+    """Build the day's verdict (messages in English or Hindi).
 
     system   : {kwp, pr_ref?, unit_value?}
     readings : [{time 'YYYY-MM-DDTHH:MM', e_today_kwh?, power_kw?, e_total_kwh?}]
@@ -61,6 +62,7 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     air      : output of weather.air_quality_hourly
     previous : earlier verdicts (newest last) for sudden-drop detection
     """
+    L = lang
     reading = latest_energy_reading(readings, date)
     sky = day_sky_summary(hourly, date)
     fault_state = inverter_fault(readings, date)
@@ -68,16 +70,15 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     pm25 = daylight_mean(air, date, "pm25")
     aqi = daylight_mean(air, date, "aqi")
     base = {"date": date, "sky": sky, "aod": aod, "pm25": pm25, "aqi": aqi}
+    clock = lambda t: parse_local(t).strftime("%I:%M %p").lstrip("0")
 
     if fault_state:
-        return {**base, "code": "fault", "title": "Inverter reports a fault",
-                "message": (f"The inverter display showed \"{fault_state['state']}\" at "
-                            f"{parse_local(fault_state['time']).strftime('%I:%M %p').lstrip('0')}. Note the code, switch "
-                            f"the inverter off and on once if your installer allows it, and call your installer."),
+        return {**base, "code": "fault", "title": tr(L, "fault_state.title"),
+                "message": tr(L, "fault_state.msg", state=fault_state["state"], time=clock(fault_state["time"])),
                 "final": False, "reading_time": fault_state["time"]}
     if reading is None:
-        return {**base, "code": "no_data", "title": "No reading yet",
-                "message": "Upload a photo of the inverter display to check today.", "final": False}
+        return {**base, "code": "no_data", "title": tr(L, "no_data.title"), "message": tr(L, "no_data.msg"),
+                "final": False}
 
     at = parse_local(reading["time"])
     day_total = expected_energy_until(hourly, date, None)
@@ -87,9 +88,8 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     expected = day_total if final else expected_energy_until(hourly, date, at)
     actual = float(reading["e_today_kwh"])
     if expected < 0.05:
-        return {**base, "code": "too_early", "title": "Too early to judge",
-                "message": "Check again after 10 AM.", "final": final,
-                "actual_kwh": actual, "expected_kwh": round(expected, 2)}
+        return {**base, "code": "too_early", "title": tr(L, "too_early.title"), "message": tr(L, "too_early.msg"),
+                "final": final, "actual_kwh": actual, "expected_kwh": round(expected, 2)}
 
     pi = actual / expected
     haze = haze_loss_estimate(aod)
@@ -110,40 +110,35 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     cloudy = sky.get("sky_factor") is not None and sky["sky_factor"] < 0.45
     prev_adj = [p["performance_after_haze"] for p in (previous or [])[-3:]
                 if p.get("performance_after_haze") is not None]
+    pct = lambda x: f"{x * 100:.0f}"
 
     if pi_adj >= HEALTHY_AT:
         if haze >= 0.08:
-            code, title = "smog", "Smog day - your panels are fine"
-            msg = (f"Haze (AOD {aod:.2f}, PM2.5 {pm25:.0f}) cut about {haze*100:.0f}% of the sunlight today. "
-                   f"Your panels made what the hazy sky allowed. Nothing to fix.")
+            code = "smog"
+            air_txt = ", ".join(p for p in (f"AOD {aod:.2f}" if aod is not None else "",
+                                            f"PM2.5 {pm25:.0f}" if pm25 is not None else "") if p)
+            msg = tr(L, "smog.msg", air=air_txt, haze=pct(haze))
         else:
-            code, title = "healthy", "Working well"
-            msg = f"Your system made {pi*100:.0f}% of what today's sunlight should give. No action needed."
+            code = "healthy"
+            msg = tr(L, "healthy.msg", pi=pct(pi))
     elif prev_adj and pi_adj < 0.6 * median(prev_adj) and not cloudy:
-        code, title = "fault", "Sudden drop - possible fault"
-        msg = (f"Output fell to {pi_adj*100:.0f}% of expected, far below your recent "
-               f"{median(prev_adj)*100:.0f}%. Check the inverter for an error code or a tripped switch, "
-               f"then call your installer.")
+        code = "fault"
+        msg = tr(L, "fault.msg", pi=pct(pi_adj), median=pct(median(prev_adj)))
     elif days_since_clean_or_rain is None or days_since_clean_or_rain >= 3:
-        code, title = "dust", "Dust on panels - clean them"
-        msg = (f"After allowing for haze, your panels made {panel_loss*100:.0f}% less than they should. "
-               f"That is about ₹{rupees_week:.0f} a week.")
+        code = "dust"
+        msg = tr(L, "dust.msg", loss=pct(panel_loss), rupees=f"{rupees_week:.0f}")
         rain = next((d for d in (rain_ahead or [])[:2]
                      if (d.get("rain_mm") or 0) >= 5 and (d.get("rain_prob_pct") or 0) >= 60), None)
-        if rain:
-            msg += f" Rain is likely on {rain['date']} - wait for it and save the water."
-        else:
-            msg += " Clean early morning or evening with plain water and a soft cloth."
+        msg += tr(L, "dust.rain", date=rain["date"]) if rain else tr(L, "dust.clean")
     else:
-        code, title = "check", "Lower than expected"
-        msg = (f"Output is {panel_loss*100:.0f}% below expected even though the panels were cleaned or "
-               f"rained on recently. Look for new shade, a loose cable or inverter warnings.")
+        code = "check"
+        msg = tr(L, "check.msg", loss=pct(panel_loss))
 
     if cloudy:
-        msg += " It was a cloudy day, so this estimate is less certain."
+        msg += tr(L, "cloudy")
     if not final:
-        msg += f" (Based on the {at.strftime('%I:%M %p').lstrip('0')} reading; the day is not over.)"
-    return {**result, "code": code, "title": title, "message": msg}
+        msg += tr(L, "partial", time=clock(reading["time"]))
+    return {**result, "code": code, "title": tr(L, f"{code}.title"), "message": msg}
 
 
 FAULT_WORDS = ("fault", "error", "fail", "alarm", "isolation", "grid lost", "no grid", "over", "under", "abnormal")

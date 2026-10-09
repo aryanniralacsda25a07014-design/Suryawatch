@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -301,6 +302,33 @@ class BillTests(WatchApiTests):
                                                  "sanctioned_load_kw": 3})
         self.assertEqual(code, 200, body)
         self.assertTrue(any("sanctioned load is 3 kW" in n for n in body["notes"]), body["notes"])
+
+
+class HindiTests(WatchApiTests):
+    def test_every_message_has_hindi(self):
+        import i18n
+        self.assertEqual(set(i18n.TEXT["en"]), set(i18n.TEXT["hi"]))
+        for key, en in i18n.TEXT["en"].items():
+            self.assertEqual(sorted(re.findall(r"{(\w+)}", en)), sorted(re.findall(r"{(\w+)}", i18n.TEXT["hi"][key])), key)
+
+    def test_day_outlook_and_plan_in_hindi(self):
+        sid = self.make_system()
+        today = watch.today()
+        hourly = solar.expected_hourly({"lat": 28.7, "lon": 77.1, "kwp": 3}, fake_sun(28.7, 77.1, 20, 180, today, today))
+        full = solar.expected_energy_until(hourly, today)
+        self.call("POST", f"/systems/{sid}/readings", {"readings": [{"time": f"{today}T18:30", "e_today_kwh": full * 0.97}]})
+        en = self.call("GET", f"/systems/{sid}/day", params={"date": today})[1]["verdict"]
+        hi = self.call("GET", f"/systems/{sid}/day", params={"date": today, "lang": "hi"})[1]["verdict"]
+        self.assertEqual(en["code"], hi["code"])
+        self.assertRegex(hi["title"] + hi["message"], "[\\u0900-\\u097F]")
+        self.assertNotRegex(en["title"] + en["message"], "[\\u0900-\\u097F]")
+        out = self.call("GET", f"/systems/{sid}/outlook", params={"lang": "hi"})[1]["days"][0]
+        self.assertRegex(out["title"], "[\\u0900-\\u097F]")
+        code, plan = self.call("POST", "/plan", {"lat": 28.6, "lon": 77.2, "roof_area_m2": 80, "monthly_units": 600,
+                                                 "sanctioned_load_kw": 3, "lang": "hi"})
+        self.assertEqual(code, 200, plan)
+        self.assertTrue(any("स्वीकृत लोड 3 kW" in n for n in plan["notes"]), plan["notes"])
+        self.assertTrue(all(re.search("[\\u0900-\\u097F]", a) for a in plan["assumptions"]))
 
 
 if __name__ == "__main__":

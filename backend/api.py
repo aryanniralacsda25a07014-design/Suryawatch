@@ -122,7 +122,7 @@ def get_system(_e, _p, m):
 
 
 def day(_e, params, m):
-    return watch.day_view(m["sid"], params.get("date"))
+    return watch.day_view(m["sid"], params.get("date"), params.get("lang") or "en")
 
 
 def read_photo(event, _p, m):
@@ -188,8 +188,8 @@ def add_event(event, _p, m):
     return watch.add_event(m["sid"], body_of(event))
 
 
-def outlook(_e, _p, m):
-    return watch.outlook(m["sid"])
+def outlook(_e, params, m):
+    return watch.outlook(m["sid"], lang=params.get("lang") or "en")
 
 
 def subscribe_alerts(event, _p, m):

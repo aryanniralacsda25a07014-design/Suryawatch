@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import calendar
 
 import planner
+from i18n import tr
 import solar
 import store
 import verdict
@@ -244,7 +245,7 @@ def _dry_days(date: str, hourly: list[dict], events: list[dict]) -> int:
     return verdict.days_between(max(candidates), date)
 
 
-def day_view(sid: str, date: str | None = None) -> dict:
+def day_view(sid: str, date: str | None = None, lang: str = "en") -> dict:
     system = get_system(sid)
     date = date or today()
     if not DATE_RE.match(date):
@@ -272,9 +273,9 @@ def day_view(sid: str, date: str | None = None) -> dict:
 
     previous = [v for v in store.query(pk, "VERDICT#") if v.get("date", "") < date and v.get("final")]
     v = verdict.diagnose_day(system, date, readings, hourly, air, previous=previous,
-                             days_since_clean_or_rain=_dry_days(date, hourly, events), rain_ahead=rain_ahead)
+                             days_since_clean_or_rain=_dry_days(date, hourly, events), rain_ahead=rain_ahead, lang=lang)
     if v.get("code") not in ("no_data", "too_early"):
-        keep = ("date", "code", "title", "final", "actual_kwh", "expected_kwh", "performance",
+        keep = ("date", "code", "final", "actual_kwh", "expected_kwh", "performance",
                 "performance_after_haze", "haze_loss", "panel_loss", "rupees_lost_per_week", "aod", "pm25")
         store.put(pk, f"VERDICT#{date}", {k: v.get(k) for k in keep})
 
@@ -299,7 +300,7 @@ def day_view(sid: str, date: str | None = None) -> dict:
 
 
 # --------------------------------------------------------------------------- outlook (tomorrow's sun and smog)
-def outlook(sid: str, days: int = 2) -> dict:
+def outlook(sid: str, days: int = 2, lang: str = "en") -> dict:
     """Forecast for the next `days` days: expected output, haze from the air-quality forecast, rain, and advice."""
     system = get_system(sid)
     base = datetime.now(solar.IST).date()
@@ -331,26 +332,21 @@ def outlook(sid: str, days: int = 2) -> dict:
         out.append({"date": d, "expected_kwh": round(expected, 1), "likely_kwh": round(likely, 1),
                     "haze_loss": round(haze, 3), "aod": aod, "pm25": pm25, "aqi": aqi,
                     "rain_mm": rain_mm, "rain_prob_pct": rain_prob, "sky_factor": sky.get("sky_factor"),
-                    **_outlook_advice(likely, expected, haze, pm25, aqi, rain_mm, rain_prob, sky.get("sky_factor"))})
+                    **_outlook_advice(likely, expected, haze, pm25, aqi, rain_mm, rain_prob, sky.get("sky_factor"), lang)})
     return {"system_id": sid, "days": out}
 
 
-def _outlook_advice(likely, expected, haze, pm25, aqi, rain_mm, rain_prob, sky_factor) -> dict:
-    kwh = f"about {likely:.1f} kWh"
+def _outlook_advice(likely, expected, haze, pm25, aqi, rain_mm, rain_prob, sky_factor, lang="en") -> dict:
+    L = lang
+    kwh = tr(L, "kwh", kwh=f"{likely:.1f}")
     if (rain_mm or 0) >= 5 and (rain_prob is None or rain_prob >= 50):
-        return {"code": "rain", "title": "Rain likely: a free wash",
-                "message": f"About {rain_mm:.0f} mm of rain is forecast. It will rinse the dust off, so skip cleaning "
-                           f"before it. Output will be low: {kwh}."}
+        return {"code": "rain", "title": tr(L, "out.rain.title"), "message": tr(L, "out.rain.msg", mm=f"{rain_mm:.0f}", kwh=kwh)}
     if haze >= 0.15 or (aqi or 0) >= 200:
-        air = f"PM2.5 around {pm25:.0f}" if pm25 is not None else "very poor air"
-        return {"code": "smog_heavy", "title": "Heavy smog expected",
-                "message": f"Haze may block about {haze * 100:.0f}% of the sunlight ({air}). Expect {kwh} instead of "
-                           f"{expected:.1f} kWh. Low output will not mean your panels are dirty or faulty."}
+        air = tr(L, "out.air.pm", pm=f"{pm25:.0f}") if pm25 is not None else tr(L, "out.air.bad")
+        return {"code": "smog_heavy", "title": tr(L, "out.smog.title"),
+                "message": tr(L, "out.smog.msg", haze=f"{haze * 100:.0f}", air=air, kwh=kwh, expected=f"{expected:.1f}")}
     if haze >= 0.08:
-        return {"code": "haze", "title": "Hazy day expected",
-                "message": f"Haze may block about {haze * 100:.0f}% of the sunlight. Expect {kwh}."}
+        return {"code": "haze", "title": tr(L, "out.haze.title"), "message": tr(L, "out.haze.msg", haze=f"{haze * 100:.0f}", kwh=kwh)}
     if sky_factor is not None and sky_factor < 0.55:
-        return {"code": "cloudy", "title": "Cloudy day expected", "message": f"Clouds will cut output. Expect {kwh}."}
-    return {"code": "clear", "title": "Clear, sunny day expected",
-            "message": f"Expect {kwh}. A good day to see your panels at their best: photograph the display "
-                       f"at about 1 PM and 5:45 PM."}
+        return {"code": "cloudy", "title": tr(L, "out.cloudy.title"), "message": tr(L, "out.cloudy.msg", kwh=kwh)}
+    return {"code": "clear", "title": tr(L, "out.clear.title"), "message": tr(L, "out.clear.msg", kwh=kwh)}
