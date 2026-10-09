@@ -274,5 +274,34 @@ class OutlookTests(WatchApiTests):
         self.assertIn("Heavy smog expected tomorrow", log)
 
 
+class BillTests(WatchApiTests):
+    def test_parse_bill(self):
+        r = reader.parse_bill('```json\n{"units": "824 kWh", "period_days": 61, "amount_rs": "4,512.00", '
+                              '"sanctioned_load_kw": "5 kW", "discom": "BSES Rajdhani Power Ltd", '
+                              '"history": [{"month": "Jun", "units": 510}, {"month": "Jul", "units": 470}, '
+                              '{"month": "Aug", "units": 430}], "export_units": null, "confidence": "high"}\n```')
+        self.assertEqual(r["units"], 824)
+        self.assertAlmostEqual(r["monthly_units"], 410, delta=2)      # two-month bill -> per month
+        self.assertEqual(r["average_monthly_units"], 470)
+        self.assertEqual(r["state"], "delhi")
+        self.assertEqual(r["sanctioned_load_kw"], 5)
+        self.assertEqual(reader.parse_bill('{"units": 300, "discom": "UHBVN"}')["state"], "other")
+
+    def test_bill_route(self):
+        img = base64.b64encode(b"\xff\xd8\xff" + os.urandom(3000)).decode()
+        code, body = self.call("POST", "/bill", {"image_base64": img})
+        self.assertEqual(code, 200, body)
+        self.assertTrue(body["ai_available"])
+        self.assertIsNotNone(body["average_monthly_units"])
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "photos")))   # bills are never stored
+        self.assertEqual(self.call("POST", "/bill", {"image_base64": "xx"})[0], 400)
+
+    def test_sanctioned_load_note(self):
+        code, body = self.call("POST", "/plan", {"lat": 28.6, "lon": 77.2, "roof_area_m2": 80, "monthly_units": 600,
+                                                 "sanctioned_load_kw": 3})
+        self.assertEqual(code, 200, body)
+        self.assertTrue(any("sanctioned load is 3 kW" in n for n in body["notes"]), body["notes"])
+
+
 if __name__ == "__main__":
     unittest.main()

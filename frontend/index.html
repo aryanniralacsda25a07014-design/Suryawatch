@@ -77,10 +77,18 @@
             </label>
           </div>
 
+          <div class="bill-row">
+            <label class="btn small ghost file-btn">Read my bill from a photo<input type="file" id="bill-file" accept="image/jpeg,image/png,image/webp" hidden></label>
+            <span class="hint" id="bill-msg">Fills in your units, electricity company and load. The photo is not saved, and your name, address and account numbers are not read.</span>
+          </div>
+
           <details class="advanced">
             <summary>Advanced assumptions</summary>
             <label class="field">Installed cost per kW before subsidy (₹)
               <input id="cost" type="number" min="20000" step="1000" value="60000" inputmode="numeric">
+            </label>
+            <label class="field">Sanctioned load (kW, printed on your bill)
+              <input id="sload" type="number" min="0.5" step="0.5" placeholder="e.g. 3" inputmode="decimal">
             </label>
           </details>
 

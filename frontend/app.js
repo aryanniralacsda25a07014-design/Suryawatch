@@ -305,6 +305,37 @@
     });
   }
 
+  // read units, DISCOM and sanctioned load from a bill photo (Amazon Bedrock; the photo is not stored)
+  $("bill-file").onchange = async (e) => {
+    const file = (e.target.files || [])[0];
+    e.target.value = "";
+    if (!file) return;
+    const msg = $("bill-msg");
+    msg.textContent = "Reading your bill...";
+    try {
+      const r = await api("/bill", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ image_base64: await shrink(file) }) });
+      if (!r.ai_available) { msg.textContent = r.message; return; }
+      const units = r.average_monthly_units || r.monthly_units;
+      if (units) {
+        document.querySelector('input[name="usage-kind"][value="units"]').checked = true;
+        $("usage").value = Math.round(units);
+      }
+      if (r.state) $("state").value = r.state;
+      if (r.sanctioned_load_kw) $("sload").value = r.sanctioned_load_kw;
+      const parts = [];
+      if (r.monthly_units) parts.push(`${n0(r.monthly_units)} units a month on this bill`);
+      if (r.average_monthly_units) parts.push(`${r.history.length}-month average ${n0(r.average_monthly_units)} units (used above)`);
+      if (r.discom) parts.push(r.discom);
+      if (r.sanctioned_load_kw) parts.push(`sanctioned load ${r.sanctioned_load_kw} kW`);
+      msg.textContent = units
+        ? `Read from your bill (${r.confidence} confidence): ${parts.join(" · ")}. Please check the numbers.${r.notes ? " " + r.notes : ""}`
+        : "Could not find the units on this bill. Please type them in.";
+    } catch (ex) {
+      msg.textContent = ex.name === "InvalidStateError" ? "This photo format can't be opened. Please use a JPG." : ex.message;
+    }
+  };
+
   $("plan-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const err = $("plan-error");
@@ -322,6 +353,7 @@
       lat: loc.lat, lon: loc.lon, roof_area_m2: m2,
       usable_fraction: (parseFloat($("usable").value) || 70) / 100,
       state: $("state").value, cost_per_kw: parseFloat($("cost").value) || 60000,
+      sanctioned_load_kw: parseFloat($("sload").value) || null,
     };
     body[kind === "units" ? "monthly_units" : "monthly_bill"] = usage;
     const btn = $("plan-btn");

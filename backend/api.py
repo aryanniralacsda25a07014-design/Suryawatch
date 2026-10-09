@@ -15,6 +15,7 @@ Routes
     POST /systems/{id}/alerts                 subscribe an email to alerts (Amazon SNS)
     POST /systems/{id}/alerts/test            send today's check right now
     POST /ask                                 helper: questions in English or Hindi (Amazon Bedrock)
+    POST /bill                                read units, load and DISCOM from a bill photo (not stored)
 """
 from __future__ import annotations
 
@@ -147,6 +148,30 @@ def read_photo(event, _p, m):
     return {"photo_key": key, "ai_available": True, **values}
 
 
+def decode_photo(req: dict) -> tuple[bytes, str]:
+    raw = str(req.get("image_base64") or "")
+    if raw.startswith("data:"):
+        raw = raw.split(",", 1)[-1]
+    try:
+        image = base64.b64decode(raw, validate=False)
+    except Exception as exc:
+        raise BadRequest("The photo could not be decoded.") from exc
+    if len(image) < 1000:
+        raise BadRequest("Please attach a photo.")
+    if len(image) > MAX_PHOTO_BYTES:
+        raise BadRequest("That photo is too large. Please use one under 4 MB.")
+    fmt = "png" if image[:8] == b"\x89PNG\r\n\x1a\n" else "webp" if image[8:12] == b"WEBP" else "jpeg"
+    return image, fmt
+
+
+def read_bill(event, _p, _m):
+    image, fmt = decode_photo(body_of(event))      # read in memory only; bills are never stored
+    try:
+        return {"ai_available": True, **reader.read_bill(image, fmt)}
+    except reader.ReaderUnavailable as exc:
+        return {"ai_available": False, "message": "Bill reading runs on AWS. Type your units for now."}
+
+
 def save_readings(event, _p, m):
     req = body_of(event)
     items = req.get("readings") if isinstance(req, dict) else req
@@ -199,6 +224,7 @@ ROUTES = [
     ("POST", rf"/systems/{SID}/alerts", subscribe_alerts),
     ("POST", rf"/systems/{SID}/alerts/test", test_alert),
     ("POST", r"/ask", ask),
+    ("POST", r"/bill", read_bill),
 ]
 
 

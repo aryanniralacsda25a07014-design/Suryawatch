@@ -155,6 +155,14 @@ def plan(req: dict) -> dict:
         lifetime += benefit
 
     notes = []
+    load = req.get("sanctioned_load_kw")
+    try:
+        load = float(load) if load not in (None, "") else None
+    except (TypeError, ValueError):
+        load = None
+    if load and kw > load:
+        notes.append(f"Your sanctioned load is {load:g} kW. Many DISCOMs limit rooftop solar to the sanctioned "
+                     f"load, so you may need to raise it to {kw:g} kW or choose a smaller system. Check with your DISCOM.")
     if in_delhi and units <= 200:
         notes.append("Your bill is already ₹0 under the Delhi free-200-units scheme, so most of your "
                      "return comes from the generation incentive and surplus export credit.")
