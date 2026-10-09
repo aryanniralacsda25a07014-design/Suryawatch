@@ -21,6 +21,8 @@ Globals:
         TABLE_NAME: !Ref DataTable
         PHOTO_BUCKET: !Ref PhotoBucket
         MODEL_ID: !Ref BedrockModelId
+        ALERT_TOPIC_ARN: !Ref AlertsTopic
+        APP_URL: !Sub https://main.${WebApp.DefaultDomain}
 
 Resources:
   # ---------------------------------------------------------------- API
@@ -44,6 +46,8 @@ Resources:
             TableName: !Ref DataTable
         - S3CrudPolicy:
             BucketName: !Ref PhotoBucket
+        - SNSCrudPolicy:
+            TopicName: !GetAtt AlertsTopic.TopicName
         - Statement:
             - Effect: Allow
               Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
@@ -55,6 +59,35 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /{proxy+}
             Method: ANY
+
+  DailyCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Evening check - emails owners when panels need cleaning, show a fault, or a reading is missing
+      CodeUri: backend/
+      Handler: daily_check.handler
+      Timeout: 300
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - SNSCrudPolicy:
+            TopicName: !GetAtt AlertsTopic.TopicName
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource: "*"
+      Events:
+        EveningCheck:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(30 19 * * ? *)
+            ScheduleExpressionTimezone: Asia/Kolkata
+            Description: SuryaWatch daily check at 7:30 PM IST
+
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: SuryaWatch
 
   # ---------------------------------------------------------------- data
   DataTable:
@@ -113,3 +146,5 @@ Outputs:
     Value: !Ref PhotoBucket
   TableName:
     Value: !Ref DataTable
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic

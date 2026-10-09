@@ -153,6 +153,10 @@ class VerdictTests(unittest.TestCase):
         self.assertFalse(v["final"])
         self.assertEqual(v["code"], "healthy")
 
+    def test_reading_just_before_sunset_counts_as_final(self):
+        self.assertTrue(self.run_case(0.97, aod=0.35, at="17:45")["final"])
+        self.assertFalse(self.run_case(0.97, aod=0.35, at="15:00")["final"])
+
     def test_calibration(self):
         v = self.run_case(0.95, aod=0.4)
         self.assertAlmostEqual(verdict.calibrate_pr(self.system, v), 0.85 * v["performance_after_haze"], places=2)

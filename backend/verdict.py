@@ -63,18 +63,28 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     """
     reading = latest_energy_reading(readings, date)
     sky = day_sky_summary(hourly, date)
+    fault_state = inverter_fault(readings, date)
     aod = daylight_mean(air, date, "aod")
     pm25 = daylight_mean(air, date, "pm25")
     aqi = daylight_mean(air, date, "aqi")
     base = {"date": date, "sky": sky, "aod": aod, "pm25": pm25, "aqi": aqi}
 
+    if fault_state:
+        return {**base, "code": "fault", "title": "Inverter reports a fault",
+                "message": (f"The inverter display showed \"{fault_state['state']}\" at "
+                            f"{parse_local(fault_state['time']).strftime('%I:%M %p').lstrip('0')}. Note the code, switch "
+                            f"the inverter off and on once if your installer allows it, and call your installer."),
+                "final": False, "reading_time": fault_state["time"]}
     if reading is None:
         return {**base, "code": "no_data", "title": "No reading yet",
                 "message": "Upload a photo of the inverter display to check today.", "final": False}
 
     at = parse_local(reading["time"])
-    final = at.hour >= FINAL_AFTER_HOUR
-    expected = expected_energy_until(hourly, date, None if final else at)
+    day_total = expected_energy_until(hourly, date, None)
+    # Final when it is evening, or when less than 3% of the day's sunlight energy was still to come
+    # (inverters switch off around sunset, so the last reading is often taken at about 5:45 PM).
+    final = at.hour >= FINAL_AFTER_HOUR or (day_total > 0 and expected_energy_until(hourly, date, at) >= 0.97 * day_total)
+    expected = day_total if final else expected_energy_until(hourly, date, at)
     actual = float(reading["e_today_kwh"])
     if expected < 0.05:
         return {**base, "code": "too_early", "title": "Too early to judge",
@@ -88,7 +98,7 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     panel_loss = max(0.0, 1 - pi_adj)
     unit_value = float(system.get("unit_value") or DEFAULT_UNIT_VALUE)
     lost_kwh = max(0.0, expected_after_haze - actual)
-    day_fraction = 1.0 if final else max(expected / max(expected_energy_until(hourly, date, None), 0.01), 0.05)
+    day_fraction = 1.0 if final else max(expected / max(day_total, 0.01), 0.05)
     rupees_week = lost_kwh / day_fraction * 7 * unit_value
 
     result = {**base, "final": final, "reading_time": reading["time"],
@@ -134,6 +144,27 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     if not final:
         msg += f" (Based on the {at.strftime('%I:%M %p').lstrip('0')} reading; the day is not over.)"
     return {**result, "code": code, "title": title, "message": msg}
+
+
+FAULT_WORDS = ("fault", "error", "fail", "alarm", "isolation", "grid lost", "no grid", "over", "under", "abnormal")
+OK_WORDS = ("normal", "waiting", "wait", "checking", "check", "standby", "start", "generating", "on-grid", "ongrid")
+
+
+def inverter_fault(readings: list[dict], date: str) -> dict | None:
+    """The latest reading of the day whose inverter state looks like a fault (e.g. 'Fault', 'F07', 'Error 31')."""
+    for r in sorted((r for r in readings if r["time"][:10] == date and r.get("state")), key=lambda r: r["time"], reverse=True):
+        s = str(r["state"]).lower()
+        if any(w in s for w in OK_WORDS) and not any(w in s for w in FAULT_WORDS[:4]):
+            return None                      # most recent state is fine
+        if any(w in s for w in FAULT_WORDS) or re_code(s):
+            return r
+        return None
+    return None
+
+
+def re_code(s: str) -> bool:
+    import re
+    return bool(re.fullmatch(r"\s*(f|e|err|w)\s*-?\s*\d{1,3}\s*", s, re.IGNORECASE))
 
 
 def instant_check(hourly: list[dict], power_readings: list[dict]) -> list[dict]:

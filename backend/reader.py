@@ -16,13 +16,19 @@ import re
 DEFAULT_MODELS = ["us.amazon.nova-2-lite-v1:0", "us.amazon.nova-lite-v1:0", "us.amazon.nova-pro-v1:0"]
 
 PROMPT = """You are reading a photo of a solar inverter display (or its mobile-app screen) on an Indian rooftop.
-Extract the readings exactly as shown. Common labels:
-- current output: "Pac", "Power", "Output Power", "P", "Now" (W or kW)
-- energy produced today: "E-Today", "E-Day", "Today", "Daily Energy", "Today Yield", "Eday" (kWh)
+Many Indian string inverters (Eastman SolarLink, Growatt, Solis, Sofar, Deye and others) have a small two-line
+character LCD that shows one pair of readings at a time, for example:
+  "Power: 1335W" / "State: Normal"      or      "E-Today: 5.2kWh" / "E-Total: 1234kWh"
+The LCD can be faint, greenish and partly covered by glare. Read each character carefully.
+Common labels:
+- current output: "Power", "Pac", "Output Power", "P", "Now" (W or kW)
+- energy produced today: "E-Today", "E-Day", "Day", "Today", "Daily Energy", "Today Yield", "Eday" (kWh)
 - lifetime energy: "E-Total", "Total", "Total Yield", "Etotal", "Lifetime" (kWh or MWh)
-Rules: convert W to kW and MWh to kWh. Use null for anything not visible. Never guess a number you cannot read.
+- inverter status: "State", "Status", "Mode" (for example Normal, Waiting, Checking, Fault, an error code)
+Rules: convert W to kW and MWh to kWh. Use null for anything not visible or not legible.
+Never guess a digit you cannot read: if glare hides part of a number, return null and say so in notes.
 Reply with JSON only, no other text, in exactly this shape:
-{"power_kw": number|null, "e_today_kwh": number|null, "e_total_kwh": number|null,
+{"power_kw": number|null, "e_today_kwh": number|null, "e_total_kwh": number|null, "state": string|null,
  "display_time": "HH:MM"|null, "other_values": [{"label": string, "value": string}],
  "confidence": "high"|"medium"|"low", "notes": string}"""
 
@@ -50,6 +56,7 @@ def parse_reply(text: str) -> dict:
         "power_kw": _num(data.get("power_kw")),
         "e_today_kwh": _num(data.get("e_today_kwh")),
         "e_total_kwh": _num(data.get("e_total_kwh")),
+        "state": (str(data.get("state")).strip()[:40] or None) if data.get("state") else None,
         "display_time": data.get("display_time") or None,
         "other_values": data.get("other_values") or [],
         "confidence": data.get("confidence") if data.get("confidence") in ("high", "medium", "low") else "low",
@@ -68,7 +75,7 @@ def parse_reply(text: str) -> dict:
 def _mock(image: bytes) -> dict:
     rnd = random.Random(len(image))
     return {"power_kw": round(rnd.uniform(1.2, 2.4), 2), "e_today_kwh": round(rnd.uniform(4, 11), 1),
-            "e_total_kwh": round(rnd.uniform(2000, 6000), 0), "display_time": None, "other_values": [],
+            "e_total_kwh": round(rnd.uniform(2000, 6000), 0), "state": "Normal", "display_time": None, "other_values": [],
             "confidence": "medium", "notes": "TEST MODE: simulated reading, not from the photo.", "model": "mock"}
 
 

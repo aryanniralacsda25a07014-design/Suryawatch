@@ -11,15 +11,22 @@ Routes
     POST /systems/{id}/readings               save readings (after the owner checks them)
     POST /systems/{id}/readings/delete        remove one reading
     POST /systems/{id}/events                 log a cleaning or a note
+    POST /systems/{id}/alerts                 subscribe an email to alerts (Amazon SNS)
+    POST /systems/{id}/alerts/test            send today's check right now
+    POST /ask                                 helper: questions in English or Hindi (Amazon Bedrock)
 """
 from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import traceback
 from datetime import datetime
 
+import alerts
+import assistant
+import daily_check
 import planner
 import reader
 import solar
@@ -73,7 +80,8 @@ def num(params: dict, key: str, default=None, lo=None, hi=None) -> float:
 
 # --------------------------------------------------------------------------- Plan
 def health(_e, _p, _m):
-    return {"ok": True, "service": "suryawatch", "stage": 2, "storage": "aws" if store.on_aws() else "local"}
+    return {"ok": True, "service": "suryawatch", "stage": 3, "storage": "aws" if store.on_aws() else "local",
+            "alerts": "sns" if alerts.topic() else "local"}
 
 
 def make_plan(event, _p, _m):
@@ -154,6 +162,22 @@ def add_event(event, _p, m):
     return watch.add_event(m["sid"], body_of(event))
 
 
+def subscribe_alerts(event, _p, m):
+    watch.get_system(m["sid"])
+    return alerts.subscribe(m["sid"], body_of(event).get("email"))
+
+
+def test_alert(_e, _p, m):
+    watch.get_system(m["sid"])
+    return daily_check.run_for(m["sid"], os.environ.get("APP_URL"), force=True)
+
+
+def ask(event, _p, _m):
+    req = body_of(event)
+    ctx = req.get("context") if isinstance(req.get("context"), dict) else {}
+    return assistant.ask(req.get("question"), ctx, req.get("lang"))
+
+
 SID = r"(?P<sid>[a-z0-9]{1,20})"
 ROUTES = [
     ("GET", r"/health", health),
@@ -166,6 +190,9 @@ ROUTES = [
     ("POST", rf"/systems/{SID}/readings", save_readings),
     ("POST", rf"/systems/{SID}/readings/delete", delete_reading),
     ("POST", rf"/systems/{SID}/events", add_event),
+    ("POST", rf"/systems/{SID}/alerts", subscribe_alerts),
+    ("POST", rf"/systems/{SID}/alerts/test", test_alert),
+    ("POST", r"/ask", ask),
 ]
 
 

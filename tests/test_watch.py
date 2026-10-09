@@ -133,5 +133,63 @@ class ReaderTests(unittest.TestCase):
             reader.parse_reply("I cannot read this image.")
 
 
+class StateTests(unittest.TestCase):
+    def test_fault_state(self):
+        import verdict
+        rows = [{"time": "2026-10-08T11:00", "state": "Normal", "power_kw": 1.3},
+                {"time": "2026-10-08T14:00", "state": "Fault F07"}]
+        self.assertEqual(verdict.inverter_fault(rows, "2026-10-08")["time"], "2026-10-08T14:00")
+        rows.append({"time": "2026-10-08T15:00", "state": "Normal"})
+        self.assertIsNone(verdict.inverter_fault(rows, "2026-10-08"))
+        self.assertTrue(verdict.re_code("E31"))
+        self.assertIsNone(verdict.inverter_fault([{"time": "2026-10-08T07:00", "state": "Waiting"}], "2026-10-08"))
+
+    def test_reader_state(self):
+        r = reader.parse_reply('{"power_kw": "1335W", "state": "Normal", "e_today_kwh": null}')
+        self.assertEqual(r["power_kw"], 1.335)
+        self.assertEqual(r["state"], "Normal")
+
+
+class Stage3Tests(WatchApiTests):
+    def test_alerts_local_and_daily_check(self):
+        import daily_check
+        sid = self.make_system()
+        self.assertEqual(self.call("POST", f"/systems/{sid}/alerts", {"email": "bad"})[0], 400)
+        code, body = self.call("POST", f"/systems/{sid}/alerts", {"email": "owner@example.com"})
+        self.assertEqual(code, 200, body)
+        code, body = self.call("POST", f"/systems/{sid}/alerts/test", {})
+        self.assertEqual(code, 200, body)
+        self.assertIn("outbox", body["sent"])
+        out = daily_check.handler()
+        self.assertEqual(out["checked"], 1)
+        log = open(os.path.join(self.tmp.name, "outbox", "alerts.log"), encoding="utf-8").read()
+        self.assertIn("SuryaWatch", log)
+
+    def test_ask_mock_and_language(self):
+        code, body = self.call("POST", "/ask", {"question": "नेट मीटरिंग क्या है?"})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["lang"], "hi")
+        code, body = self.call("POST", "/ask", {"question": "What documents do I need?", "context": {"system_kw": 3}})
+        self.assertEqual(body["lang"], "en")
+        self.assertEqual(self.call("POST", "/ask", {"question": ""})[0], 400)
+
+    def test_cleaning_effect(self):
+        sid = self.make_system()
+        hourly = lambda d: solar.expected_hourly({"lat": 28.7, "lon": 77.1, "kwp": 3}, fake_sun(28.7, 77.1, 20, 180, d, d))
+        for d, share in [("2026-10-05", 0.78), ("2026-10-06", 0.77), ("2026-10-07", 0.95), ("2026-10-08", 0.96)]:
+            full = solar.expected_energy_until(hourly(d), d)
+            self.call("POST", f"/systems/{sid}/readings", {"readings": [{"time": f"{d}T19:00", "e_today_kwh": round(full * share, 2)}]})
+            if d == "2026-10-07":
+                pass
+        self.call("POST", f"/systems/{sid}/events", {"type": "cleaned", "time": "2026-10-07T07:15"})
+        for d in ("2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"):
+            self.call("GET", f"/systems/{sid}/day", params={"date": d})
+        _, summary = self.call("GET", f"/systems/{sid}")
+        c = summary["cleaning"]
+        self.assertTrue(c["ready"], c)
+        self.assertGreater(c["gain_pct"], 15)
+        self.assertGreater(c["rupees_per_week"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

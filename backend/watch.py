@@ -65,11 +65,36 @@ def get_system(sid: str) -> dict:
     return {"system_id": sid, **meta}
 
 
+def cleaning_effect(verdicts: list[dict], events: list[dict], unit_value: float) -> dict | None:
+    """Compare panel performance (haze removed) on the days before and after the latest cleaning."""
+    cleans = [e for e in events if e.get("type") == "cleaned"]
+    if not cleans:
+        return None
+    ev = cleans[-1]
+    day, hour = ev["time"][:10], int(ev["time"][11:13])
+    final = [v for v in verdicts if v.get("final") and v.get("performance_after_haze") is not None]
+    before = [v for v in final if v["date"] < day][-3:]
+    after = [v for v in final if v["date"] > day or (v["date"] == day and hour < 11)][:3]
+    out = {"cleaned_at": ev["time"], "days_before": len(before), "days_after": len(after)}
+    if not before or not after:
+        return {**out, "ready": False}
+    b = sum(v["performance_after_haze"] for v in before) / len(before)
+    a = sum(v["performance_after_haze"] for v in after) / len(after)
+    expected = sum(v.get("expected_kwh") or 0 for v in after) / len(after)
+    gain_kwh_day = max(0.0, (a - b) * expected)
+    return {**out, "ready": True, "before": round(b, 3), "after": round(a, 3),
+            "gain_pct": round((a / b - 1) * 100, 1) if b > 0 else None,
+            "kwh_per_day": round(gain_kwh_day, 2), "rupees_per_week": round(gain_kwh_day * 7 * unit_value, 0)}
+
+
 def system_summary(sid: str) -> dict:
     meta = get_system(sid)
     verdicts = [{k: v for k, v in x.items() if k not in ("pk", "sk")} for x in store.query(f"SYSTEM#{sid}", "VERDICT#")]
     events = [{k: v for k, v in x.items() if k not in ("pk", "sk")} for x in store.query(f"SYSTEM#{sid}", "EVENT#")]
-    return {**meta, "verdicts": verdicts[-30:], "events": events[-20:]}
+    alert_cfg = store.get(f"SYSTEM#{sid}", "ALERTS") or {}
+    return {**meta, "verdicts": verdicts[-60:], "events": events[-20:],
+            "cleaning": cleaning_effect(verdicts, events, float(meta.get("unit_value") or verdict.DEFAULT_UNIT_VALUE)),
+            "alert_emails": len(alert_cfg.get("emails", []))}
 
 
 # --------------------------------------------------------------------------- readings & events
@@ -87,11 +112,12 @@ def add_readings(sid: str, items: list[dict]) -> list[dict]:
             "power_kw": _f(it.get("power_kw"), "power_kw", 0, 500),
             "e_today_kwh": _f(it.get("e_today_kwh"), "e_today_kwh", 0, 5000),
             "e_total_kwh": _f(it.get("e_total_kwh"), "e_total_kwh", 0, 10_000_000),
+            "state": (str(it.get("state")).strip()[:40] or None) if it.get("state") else None,
             "source": it.get("source") if it.get("source") in ("photo", "manual") else "manual",
             "photo_key": it.get("photo_key"),
             "created": store.now_iso(),
         }
-        if r["power_kw"] is None and r["e_today_kwh"] is None and r["e_total_kwh"] is None:
+        if r["power_kw"] is None and r["e_today_kwh"] is None and r["e_total_kwh"] is None and not r["state"]:
             raise ValueError(f"The reading at {t} has no numbers.")
         store.put(f"SYSTEM#{sid}", f"READING#{t}", r)
         saved.append(r)

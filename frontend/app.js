@@ -259,7 +259,12 @@
         <li>Sunlight data: ${esc(r.sunlight_source)} (${n0(r.yield_kwh_per_kwp)} units per kW per year)</li>
       </ul></details>
       <details><summary>Assumptions</summary><ul>${r.assumptions.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></details>
-      <details><summary>How to apply under PM Surya Ghar</summary><ol>${PORTAL_STEPS.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></details>`;
+      <details><summary>How to apply under PM Surya Ghar</summary><ol>${PORTAL_STEPS.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></details>
+      <div id="plan-ask"></div>`;
+    helperBox($("plan-ask"), "plan", () => ({ system_kw: r.system_kw, yearly_units: r.yearly_generation_kwh, net_cost: r.net_cost,
+      central_subsidy: r.central_subsidy, state_subsidy: r.state_subsidy, monthly_benefit: r.monthly_benefit_avg,
+      payback_years: r.payback_years, monthly_units: r.inputs.monthly_units, state: r.inputs.state, roof_m2: r.inputs.roof_area_m2,
+      limited_by: r.limited_by, notes: r.notes }));
     barChart($("plan-chart"), months, {
       title: "Units your panels make each month",
       sub: "Dashed line: your monthly use",
@@ -355,6 +360,15 @@
     } catch (ex) { err.textContent = ex.message; err.hidden = false; } finally { btn.disabled = false; }
   };
 
+  $("s-open").onclick = () => {
+    const raw = $("s-open-id").value.trim();
+    const m = raw.match(/system=([a-z0-9]+)/i) || raw.match(/^([a-z0-9]{6,20})$/i);
+    if (!m) { $("s-error").textContent = "Paste the full link or the 10-character system ID."; $("s-error").hidden = false; return; }
+    $("s-error").hidden = true;
+    safeSet(STORE_KEY, m[1].toLowerCase());
+    openSystem(m[1].toLowerCase());
+  };
+
   // ---- dashboard
   async function openSystem(id) {
     try {
@@ -383,6 +397,7 @@
       renderVerdict(d);
       renderCharts(d);
       renderReadings(d);
+      refreshSummary();
     } catch (ex) {
       $("d-verdict").innerHTML = `<p class="error">${esc(ex.message)}</p>`;
     }
@@ -410,7 +425,11 @@
       <h3 class="verdict-title">${esc(v.title)}</h3>
       <p>${esc(v.message)}</p>
       ${stats}
-      <p class="hint">${d.is_today ? "Today" : "That day"} a ${sys.kwp} kW system here should make about <b>${total != null ? total.toFixed(1) : "–"} kWh</b> in total.${sky} ${air}</p>`;
+      <p class="hint">${d.is_today ? "Today" : "That day"} a ${sys.kwp} kW system here should make about <b>${total != null ? total.toFixed(1) : "–"} kWh</b> in total.${sky} ${air}</p>
+      <div id="watch-ask"></div>`;
+    helperBox($("watch-ask"), "watch", () => ({ date: d.date, system_kw: sys.kwp, result: v.title, explanation: v.message,
+      made_kwh: v.actual_kwh, sunlight_allowed_kwh: v.expected_kwh, haze_loss: v.haze_loss, panel_loss: v.panel_loss,
+      rupees_lost_per_week: v.rupees_lost_per_week, pm25: v.pm25, aerosol_optical_depth: v.aod }));
   }
 
   // two-series chart: expected line (with wash) + measured dots, one y-axis
@@ -481,9 +500,9 @@
       box.innerHTML = '<p class="hint">No readings for this day yet.</p>';
     } else {
       const val = (x, u) => (x == null ? "–" : `${x} ${u}`);
-      box.innerHTML = `<div class="table-wrap"><table class="rtable"><thead><tr><th>Time</th><th>Power</th><th>Today</th><th>Total</th><th>From</th><th></th></tr></thead><tbody>
+      box.innerHTML = `<div class="table-wrap"><table class="rtable"><thead><tr><th>Time</th><th>Power</th><th>Today</th><th>Total</th><th>State</th><th>From</th><th></th></tr></thead><tbody>
         ${d.readings.map((r) => `<tr><td>${clock(r.time)}</td><td class="num">${val(r.power_kw, "kW")}</td><td class="num">${val(r.e_today_kwh, "kWh")}</td>
-          <td class="num">${val(r.e_total_kwh, "kWh")}</td><td>${r.source === "photo" ? "Photo" : "Typed"}</td>
+          <td class="num">${val(r.e_total_kwh, "kWh")}</td><td>${esc(r.state || "–")}</td><td>${r.source === "photo" ? "Photo" : "Typed"}</td>
           <td><button type="button" class="link-btn" data-del="${esc(r.time)}" aria-label="Delete reading at ${clock(r.time)}">Remove</button></td></tr>`).join("")}
       </tbody></table></div>`;
       box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
@@ -543,13 +562,14 @@
           <label>Power now (kW)<input type="number" step="0.01" min="0" data-k="power_kw" value="${r.power_kw ?? ""}" inputmode="decimal"></label>
           <label>Today (kWh)<input type="number" step="0.1" min="0" data-k="e_today_kwh" value="${r.e_today_kwh ?? ""}" inputmode="decimal"></label>
           <label>Total (kWh)<input type="number" step="1" min="0" data-k="e_total_kwh" value="${r.e_total_kwh ?? ""}" inputmode="decimal"></label>
+          <label>Inverter state<input type="text" maxlength="40" data-k="state" value="${esc(r.state ?? "")}" placeholder="Normal"></label>
           <p class="rnote ${r.status === "error" ? "error" : ""}">${esc(r.note || "")}</p>
         </div>
         <button type="button" class="link-btn" data-drop="${i}" aria-label="Discard">Discard</button>
       </div>`).join("");
     box.querySelectorAll("input[data-k]").forEach((inp) => (inp.oninput = () => {
       const i = +inp.closest(".rrow").dataset.i, k = inp.dataset.k;
-      review[i][k] = k === "time" ? inp.value : inp.value === "" ? null : parseFloat(inp.value);
+      review[i][k] = k === "time" || k === "state" ? (inp.value || null) : inp.value === "" ? null : parseFloat(inp.value);
     }));
     box.querySelectorAll("[data-drop]").forEach((b) => (b.onclick = () => { review.splice(+b.dataset.drop, 1); renderReview(); }));
   }
@@ -577,7 +597,7 @@
         const r = await api(`/systems/${sys.system_id}/photo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image_base64: dataUrl }) });
         row.photo_key = r.photo_key;
         if (r.ai_available) {
-          Object.assign(row, { power_kw: r.power_kw, e_today_kwh: r.e_today_kwh, e_total_kwh: r.e_total_kwh });
+          Object.assign(row, { power_kw: r.power_kw, e_today_kwh: r.e_today_kwh, e_total_kwh: r.e_total_kwh, state: r.state });
           row.note = `Read by AI (${r.confidence} confidence). Check the numbers before saving.${r.notes ? " " + r.notes : ""}${timeNote}`;
         } else {
           row.note = (r.message || "AI reading is not available here. Type the numbers.") + timeNote;
@@ -597,9 +617,9 @@
     const err = $("r-error");
     err.hidden = true;
     const items = review.map((r) => ({ time: r.time, power_kw: r.power_kw ?? null, e_today_kwh: r.e_today_kwh ?? null,
-      e_total_kwh: r.e_total_kwh ?? null, source: r.source, photo_key: r.photo_key }));
-    const bad = items.find((r) => !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(r.time || "") || (r.power_kw == null && r.e_today_kwh == null && r.e_total_kwh == null));
-    if (bad) { err.textContent = "Every reading needs a time and at least one number."; err.hidden = false; return; }
+      e_total_kwh: r.e_total_kwh ?? null, state: r.state || null, source: r.source, photo_key: r.photo_key }));
+    const bad = items.find((r) => !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(r.time || "") || (r.power_kw == null && r.e_today_kwh == null && r.e_total_kwh == null && !r.state));
+    if (bad) { err.textContent = "Every reading needs a time and at least one value."; err.hidden = false; return; }
     $("r-save").disabled = true;
     try {
       await api(`/systems/${sys.system_id}/readings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ readings: items }) });
@@ -625,6 +645,137 @@
     setTimeout(() => { $("d-share").textContent = "Copy link"; }, 2000);
   };
   $("d-switch").onclick = () => { safeSet(STORE_KEY, null); sys = null; $("w-dash").hidden = true; $("w-setup").hidden = false; };
+
+  // ------------------------------------------------------------------ helper (Amazon Bedrock, English or Hindi)
+  const CHIPS = {
+    plan: { en: ["What documents do I need?", "How does net metering work?", "Is my roof big enough?"],
+            hi: ["कौन से कागज़ चाहिए?", "नेट मीटरिंग क्या है?", "सब्सिडी कब मिलेगी?"] },
+    watch: { en: ["Why is my output low today?", "How do I clean panels safely?", "What does this result mean?"],
+             hi: ["आज बिजली कम क्यों बनी?", "पैनल सुरक्षित तरीके से कैसे साफ़ करें?", "इस नतीजे का मतलब क्या है?"] },
+  };
+  let helperCount = 0;
+  function helperBox(el, kind, getContext) {
+    const n = ++helperCount;
+    el.innerHTML = `<div class="ask">
+      <div class="ask-head"><h3>Ask SuryaWatch</h3>
+        <div class="seg small" role="radiogroup" aria-label="Answer language">
+          <label><input type="radio" name="lang-${n}" value="en" checked> English</label>
+          <label><input type="radio" name="lang-${n}" value="hi"> हिंदी</label>
+        </div></div>
+      <div class="chips"></div>
+      <div class="search-row"><input class="ask-q" type="text" maxlength="500" placeholder="Type a question in English or Hindi" aria-label="Your question">
+        <button type="button" class="btn ask-go">Ask</button></div>
+      <div class="ask-a" aria-live="polite"></div></div>`;
+    const lang = () => el.querySelector(`input[name="lang-${n}"]:checked`).value;
+    const drawChips = () => {
+      el.querySelector(".chips").innerHTML = CHIPS[kind][lang()].map((q) => `<button type="button" class="chip">${esc(q)}</button>`).join("");
+      el.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { el.querySelector(".ask-q").value = c.textContent; go(); }));
+    };
+    const go = async () => {
+      const q = el.querySelector(".ask-q").value.trim();
+      const out = el.querySelector(".ask-a");
+      if (q.length < 3) { out.innerHTML = '<p class="hint">Type a question first.</p>'; return; }
+      out.innerHTML = '<p class="hint">Thinking...</p>';
+      try {
+        const r = await api("/ask", { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ question: q, lang: lang(), context: getContext() }) });
+        out.innerHTML = r.answer
+          ? `<div class="who">SuryaWatch${r.model && r.model !== "mock" ? " · Amazon Bedrock" : ""}</div><p>${esc(r.answer).replace(/\n+/g, "<br>")}</p>`
+          : `<p class="hint">${esc(r.unavailable || "The helper is not available right now.")}</p>`;
+      } catch (ex) { out.innerHTML = `<p class="error">${esc(ex.message)}</p>`; }
+    };
+    el.querySelectorAll(`input[name="lang-${n}"]`).forEach((r) => (r.onchange = drawChips));
+    el.querySelector(".ask-go").onclick = go;
+    el.querySelector(".ask-q").addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    drawChips();
+  }
+
+  // ------------------------------------------------------------------ history heatmap (sequential green) + cleaning effect
+  const HEAT = [
+    { max: 0.7, color: "#d5eadb", label: "under 70%" },
+    { max: 0.8, color: "#a6d1b3", label: "70–80%" },
+    { max: 0.9, color: "#6db488", label: "80–90%" },
+    { max: 1.0, color: "#3a8b5c", label: "90–100%" },
+    { max: Infinity, color: "#1f5c39", label: "100%+" },
+  ];
+  const heatColor = (p) => HEAT.find((h) => p < h.max).color;
+  const DOW = ["Mon", "", "Wed", "", "Fri", "", "Sun"];
+
+  function renderHistory(summary) {
+    const byDate = {};
+    (summary.verdicts || []).forEach((v) => { byDate[v.date] = v; });
+    const today = new Date(todayStr() + "T12:00");
+    const start = new Date(today); start.setDate(start.getDate() - 34);
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));        // back to Monday
+    let cells = "";
+    for (let d = new Date(start); d <= today || (d.getDay() + 6) % 7 !== 0; d.setDate(d.getDate() + 1)) {
+      const key = localStamp(d).slice(0, 10);
+      if (d > today) { cells += '<span class="cell future"></span>'; continue; }
+      const v = byDate[key];
+      const nice = d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+      if (!v || v.performance_after_haze == null) {
+        cells += `<button type="button" class="cell empty${key === viewDate ? " sel" : ""}" data-day="${key}" data-tip="${esc(nice)}: no reading" aria-label="${esc(nice)}, no reading"></button>`;
+      } else {
+        const label = (STATUS[v.code] || STATUS.no_data).label;
+        const tipText = `${nice}: ${pct(v.performance_after_haze)} of possible output · ${label}${v.final ? "" : " (part day)"}`;
+        cells += `<button type="button" class="cell${v.code === "fault" ? " fault" : ""}${key === viewDate ? " sel" : ""}" style="background:${heatColor(v.performance_after_haze)}" data-day="${key}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}"></button>`;
+      }
+    }
+    $("d-heat").innerHTML = `<div class="heat-wrap"><div class="heat-days">${DOW.map((d) => `<span>${d}</span>`).join("")}</div><div class="heat">${cells}</div></div>
+      <div class="heat-legend">${HEAT.map((h) => `<span><i style="background:${h.color}"></i>${h.label}</span>`).join("")}<span><i style="box-shadow:inset 0 0 0 1px #c9cfc5"></i>no reading</span></div>`;
+    $("d-heat").querySelectorAll(".cell[data-day]").forEach((c) => {
+      c.onmousemove = (ev) => showTip(esc(c.dataset.tip), ev);
+      c.onmouseleave = hideTip;
+      c.onclick = () => { hideTip(); loadDay(c.dataset.day); };
+    });
+
+    const c = summary.cleaning;
+    const box = $("d-clean");
+    if (!c) { box.innerHTML = '<p class="hint">After you clean the panels, press "We cleaned the panels today" below. SuryaWatch will compare the days before and after.</p>'; return; }
+    const when = `${c.cleaned_at.slice(0, 10)} at ${clock(c.cleaned_at)}`;
+    if (!c.ready) {
+      box.innerHTML = `<div class="clean-box"><b>Cleaned on ${esc(when)}.</b><p class="hint" style="margin-top:4px">Waiting for full days of readings: ${c.days_before} before and ${c.days_after} after the cleaning so far. Add the evening reading on each day.</p></div>`;
+      return;
+    }
+    const w = (x) => Math.max(4, Math.min(100, x * 100));
+    box.innerHTML = `<div class="clean-box">
+      <div>Cleaning on ${esc(when)} changed output by</div>
+      <div class="big2 num">${c.gain_pct > 0 ? "+" : ""}${c.gain_pct}%</div>
+      <div class="hint" style="margin-top:0">about ${c.kwh_per_day} kWh a day, worth ${inr(c.rupees_per_week)} a week</div>
+      <div class="clean-bars">
+        <span>Before</span><div class="track"><div class="fill before" style="width:${w(c.before)}%"></div></div><span class="num">${pct(c.before)}</span>
+        <span>After</span><div class="track"><div class="fill" style="width:${w(c.after)}%"></div></div><span class="num">${pct(c.after)}</span>
+      </div>
+      <p class="hint">Share of possible output after allowing for haze. Average of ${c.days_before} day(s) before and ${c.days_after} after.</p></div>`;
+  }
+
+  async function refreshSummary() {
+    if (!sys) return;
+    try {
+      const s = await api("/systems/" + sys.system_id);
+      sys = { ...sys, ...s };
+      renderHistory(s);
+      if (s.alert_emails && !$("a-msg").textContent) $("a-msg").textContent = `${s.alert_emails} email address(es) get alerts for this system.`;
+    } catch (_) { /* history is optional */ }
+  }
+
+  // ------------------------------------------------------------------ alerts (Amazon SNS)
+  $("a-save").onclick = async () => {
+    const msg = $("a-msg");
+    try {
+      const r = await api(`/systems/${sys.system_id}/alerts`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: $("a-email").value }) });
+      msg.textContent = r.message;
+    } catch (ex) { msg.textContent = ex.message; }
+  };
+  $("a-test").onclick = async () => {
+    const msg = $("a-msg");
+    msg.textContent = "Running today's check...";
+    try {
+      const r = await api(`/systems/${sys.system_id}/alerts/test`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      msg.textContent = r.sent ? `Today's check (${(STATUS[r.code] || {}).label || r.code}) was ${r.sent}.` : "Nothing to report today.";
+    } catch (ex) { msg.textContent = ex.message; }
+  };
 
   function initWatch() {
     const fromUrl = new URLSearchParams(location.search).get("system");
