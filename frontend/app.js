@@ -299,44 +299,343 @@
     }
   });
 
-  // ------------------------------------------------------------------ watch: today's expected output
-  $("w-btn").onclick = async () => {
-    const err = $("w-error");
+  // ------------------------------------------------------------------ watch mode
+  const STORE_KEY = "suryawatch.system";
+  const safeGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+  const safeSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) { /* private mode */ } };
+  const pad = (n) => String(n).padStart(2, "0");
+  const localStamp = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const todayStr = () => localStamp(new Date()).slice(0, 10);
+  const clock = (t) => { const h = +t.slice(11, 13), m = t.slice(14, 16); return `${h % 12 || 12}:${m} ${h < 12 ? "AM" : "PM"}`; };
+  const pct = (x) => (x == null ? "–" : Math.round(x * 100) + "%");
+  const hourLabel = (h) => (h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`);
+
+  let sys = null;          // current system meta
+  let viewDate = todayStr();
+  let review = [];         // readings waiting to be saved
+
+  const STATUS = {
+    healthy: { label: "Working well", cls: "good", icon: "M5 12l4 4 10-10" },
+    smog: { label: "Smog day", cls: "warn", icon: "M3 9h13M5 13h15M3 17h11" },
+    dust: { label: "Clean panels", cls: "serious", icon: "M12 3v12M7 10l5 5 5-5M5 20h14" },
+    fault: { label: "Possible fault", cls: "critical", icon: "M12 4v9M12 17v.5" },
+    check: { label: "Check system", cls: "warn", icon: "M12 4v9M12 17v.5" },
+    no_data: { label: "No reading yet", cls: "none", icon: "M5 12h14" },
+    too_early: { label: "Too early", cls: "none", icon: "M12 6v6l4 2" },
+  };
+
+  // ---- setup
+  function parseLoc(text) {
+    const m = String(text).match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/);
+    return m ? { lat: parseFloat(m[1]), lon: parseFloat(m[2]) } : null;
+  }
+  $("s-from-plan").onclick = () => {
+    if (loc.lat === null) { $("s-error").textContent = "Place your home on the Plan tab's map first."; $("s-error").hidden = false; return; }
+    $("s-loc").value = `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}`;
+  };
+  $("s-my").onclick = () => navigator.geolocation && navigator.geolocation.getCurrentPosition(
+    (p) => { $("s-loc").value = `${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)}`; },
+    () => { $("s-error").textContent = "Location permission denied. Paste the numbers instead."; $("s-error").hidden = false; });
+
+  $("s-save").onclick = async () => {
+    const err = $("s-error");
     err.hidden = true;
-    const lat = loc.lat ?? DELHI[0], lon = loc.lon ?? DELHI[1];
-    const kwp = parseFloat($("w-kwp").value) || 3;
-    const q = new URLSearchParams({ lat, lon, kwp, tilt: $("w-tilt").value || 20, facing: $("w-facing").value });
-    const btn = $("w-btn");
+    const where = parseLoc($("s-loc").value);
+    const kwp = parseFloat($("s-kwp").value);
+    if (!where) { err.textContent = "Enter the location as two numbers, like 28.7041, 77.1025."; err.hidden = false; return; }
+    if (!(kwp > 0)) { err.textContent = "Enter the system size in kW (it is on the inverter label or the installer's bill)."; err.hidden = false; return; }
+    const btn = $("s-save");
     btn.disabled = true;
     try {
-      const r = await api("/expected?" + q.toString());
-      const hours = r.hourly
-        .map((h) => ({ hour: parseInt(h.time.slice(11, 13), 10), kw: h.expected_kw }))
-        .filter((h) => h.hour >= 6 && h.hour <= 19)
-        .map((h) => ({ label: h.hour <= 12 ? `${h.hour}${h.hour === 12 ? " PM" : " AM"}` : `${h.hour - 12} PM`, value: h.kw }));
-      const sf = r.sky.sky_factor;
-      const sky = sf == null ? "" : sf >= 0.8 ? "Mostly clear sky" : sf >= 0.55 ? "Hazy or partly cloudy" : "Heavy cloud or haze";
-      const where = loc.lat === null ? "central Delhi (place your home on the Plan tab for your exact roof)" : "your roof";
-      $("w-result").innerHTML = `
-        <div class="hero" style="margin-top:18px">
-          <div class="label">A ${kwp} kW system at ${esc(where)} should make today</div>
-          <div class="big num">${r.expected_kwh} kWh</div>
-          <div class="sub">${sky}${sf != null ? ` (sunlight ${Math.round(sf * 100)}% of a perfectly clear day)` : ""}.</div>
-        </div><div id="w-chart"></div>`;
-      barChart($("w-chart"), hours, {
-        title: "Expected power through the day (kW)",
-        sub: "Each bar is the average for the hour ending at that time",
-        labelEvery: 2, fmtTick: (v) => v.toFixed(1),
-        tip: (d) => `<b>${d.label}</b><br>${d.value.toFixed(2)} kW expected`,
-      });
+      const r = await api("/systems", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        name: $("s-name").value, lat: where.lat, lon: where.lon, kwp, tilt: $("s-tilt").value, facing: $("s-facing").value,
+        unit_value: $("s-unit").value }) });
+      safeSet(STORE_KEY, r.system_id);
+      await openSystem(r.system_id);
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; } finally { btn.disabled = false; }
+  };
+
+  // ---- dashboard
+  async function openSystem(id) {
+    try {
+      sys = await api("/systems/" + encodeURIComponent(id));
     } catch (ex) {
-      err.textContent = ex.message; err.hidden = false;
-    } finally {
-      btn.disabled = false;
+      safeSet(STORE_KEY, null);
+      $("w-setup").hidden = false; $("w-dash").hidden = true;
+      $("s-error").textContent = ex.message; $("s-error").hidden = false;
+      return;
+    }
+    $("w-setup").hidden = true; $("w-dash").hidden = false;
+    $("d-name").textContent = sys.name;
+    const facing = { 180: "south", 135: "south-east", 225: "south-west", 90: "east", 270: "west", 0: "north" }[Math.round(sys.facing)] || `${sys.facing}°`;
+    $("d-meta").textContent = `${sys.kwp} kW · panels face ${facing}, ${sys.tilt}° tilt · ${sys.lat.toFixed(3)}, ${sys.lon.toFixed(3)}`;
+    $("d-date").max = todayStr();
+    await loadDay(viewDate);
+  }
+
+  async function loadDay(date) {
+    viewDate = date;
+    $("d-date").value = date;
+    $("d-next").disabled = date >= todayStr();
+    $("d-verdict").innerHTML = '<p class="hint">Checking the sunlight and air for this day...</p>';
+    try {
+      const d = await api(`/systems/${sys.system_id}/day?date=${date}`);
+      renderVerdict(d);
+      renderCharts(d);
+      renderReadings(d);
+    } catch (ex) {
+      $("d-verdict").innerHTML = `<p class="error">${esc(ex.message)}</p>`;
+    }
+  }
+
+  function renderVerdict(d) {
+    const v = d.verdict, st = STATUS[v.code] || STATUS.no_data;
+    const badge = `<span class="badge ${st.cls}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${st.icon}"/></svg>${st.label}</span>`;
+    let stats = "";
+    if (v.actual_kwh != null) {
+      stats = `<div class="stats">
+        <div class="stat"><div class="label">${v.final ? "Made" : "Made so far"}</div><div class="value num">${v.actual_kwh} kWh</div></div>
+        <div class="stat"><div class="label">Sunlight allowed</div><div class="value num">${v.expected_kwh} kWh</div></div>
+        <div class="stat"><div class="label">Performance</div><div class="value num">${pct(v.performance)}</div></div>
+        <div class="stat"><div class="label">Haze cut sunlight</div><div class="value num">${pct(v.haze_loss)}</div></div>
+        <div class="stat"><div class="label">Panel loss</div><div class="value num">${pct(v.panel_loss)}</div></div>
+        <div class="stat"><div class="label">Lost per week</div><div class="value num">${inr(v.rupees_lost_per_week || 0)}</div></div>
+      </div>`;
+    }
+    const total = d.curve.length ? d.curve[d.curve.length - 1].expected_cum_kwh : null;
+    const air = v.pm25 != null ? `Air: PM2.5 ${Math.round(v.pm25)} µg/m³, aerosol depth ${v.aod}.` : "";
+    const sky = v.sky && v.sky.sky_factor != null ? ` Sunlight ${Math.round(v.sky.sky_factor * 100)}% of a clear day.` : "";
+    $("d-verdict").innerHTML = `
+      ${badge}
+      <h3 class="verdict-title">${esc(v.title)}</h3>
+      <p>${esc(v.message)}</p>
+      ${stats}
+      <p class="hint">${d.is_today ? "Today" : "That day"} a ${sys.kwp} kW system here should make about <b>${total != null ? total.toFixed(1) : "–"} kWh</b> in total.${sky} ${air}</p>`;
+  }
+
+  // two-series chart: expected line (with wash) + measured dots, one y-axis
+  function lineDotChart(el, o) {
+    const W = Math.round(Math.max(300, el.clientWidth || 560)), H = 220, ml = 44, mr = 10, mt = 14, mb = 28;
+    const iw = W - ml - mr, ih = H - mt - mb, x0 = 5, x1 = 20;
+    const peak = Math.max(0.1, ...o.expected.map((p) => p.y), ...o.actual.map((p) => p.y));
+    const step = niceStep(peak, 4), ymax = Math.ceil(peak / step) * step;
+    const X = (h) => ml + ((h - x0) / (x1 - x0)) * iw, Y = (v) => mt + ih - (v / ymax) * ih;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title)}">`;
+    for (let v = 0; v <= ymax + 1e-9; v += step) {
+      svg += `<line class="gridline" x1="${ml}" x2="${W - mr}" y1="${Y(v)}" y2="${Y(v)}"/><text class="axis-text" x="${ml - 8}" y="${Y(v) + 4}" text-anchor="end">${o.fmt(v)}</text>`;
+    }
+    for (let h = 6; h <= 20; h += 2) svg += `<text class="axis-text" x="${X(h)}" y="${H - 8}" text-anchor="middle">${hourLabel(h)}</text>`;
+    const pts = o.expected.filter((p) => p.x >= x0 && p.x <= x1);
+    if (pts.length > 1) {
+      const line = pts.map((p, i) => `${i ? "L" : "M"}${X(p.x).toFixed(1)},${Y(p.y).toFixed(1)}`).join(" ");
+      svg += `<path class="wash" d="${line} L${X(pts[pts.length - 1].x)},${Y(0)} L${X(pts[0].x)},${Y(0)} Z"/><path class="exp-line" d="${line}"/>`;
+    }
+    o.actual.forEach((p, i) => { svg += `<circle class="dot" data-i="${i}" cx="${X(p.x)}" cy="${Y(p.y)}" r="5"/>`; });
+    svg += `<line class="cross" x1="0" x2="0" y1="${mt}" y2="${mt + ih}" visibility="hidden"/><rect class="hit" x="${ml}" y="${mt}" width="${iw}" height="${ih}"/></svg>`;
+    el.innerHTML = `<p class="chart-title">${esc(o.title)}</p>
+      <div class="legend"><span><i class="key-line"></i>${esc(o.expectedLabel)}</span><span><i class="key-dot"></i>${esc(o.actualLabel)}</span></div>
+      <div class="chart">${svg}</div>`;
+    const svgEl = el.querySelector("svg"), cross = el.querySelector(".cross"), hit = el.querySelector(".hit");
+    const expAt = (h) => {
+      for (let i = 1; i < pts.length; i++) if (pts[i].x >= h) { const a = pts[i - 1], b = pts[i]; return a.y + ((h - a.x) / (b.x - a.x)) * (b.y - a.y); }
+      return null;
+    };
+    hit.addEventListener("mousemove", (ev) => {
+      const r = svgEl.getBoundingClientRect(), px = ((ev.clientX - r.left) / r.width) * W;
+      const h = x0 + ((px - ml) / iw) * (x1 - x0);
+      cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+      const near = o.actual.map((p, i) => ({ p, i, d: Math.abs(p.x - h) })).sort((a, b) => a.d - b.d)[0];
+      const e = expAt(h);
+      let html = `<b>${clock(localStamp(new Date(2000, 0, 1, Math.floor(h), Math.round((h % 1) * 60))))}</b>`;
+      if (e != null) html += `<br>${esc(o.expectedLabel)}: ${o.fmt(e)} ${o.unit}`;
+      if (near && near.d < 0.35) html += `<br>${esc(o.actualLabel)} at ${clock(near.p.t)}: ${o.fmt(near.p.y)} ${o.unit}`;
+      showTip(html, ev);
+    });
+    hit.addEventListener("mouseleave", () => { hideTip(); cross.setAttribute("visibility", "hidden"); });
+  }
+
+  function renderCharts(d) {
+    const hrs = (t) => +t.slice(11, 13) + +t.slice(14, 16) / 60;
+    const energy = d.readings.filter((r) => r.e_today_kwh != null).map((r) => ({ x: hrs(r.time), y: r.e_today_kwh, t: r.time }));
+    const power = d.readings.filter((r) => r.power_kw != null).map((r) => ({ x: hrs(r.time), y: r.power_kw, t: r.time }));
+    $("d-charts").innerHTML = '<div id="c-energy"></div><div id="c-power" style="margin-top:18px"></div>';
+    lineDotChart($("c-energy"), {
+      title: "Energy made so far in the day (kWh)", unit: "kWh", fmt: (v) => v.toFixed(1),
+      expectedLabel: "What the sunlight allowed", actualLabel: "Your E-Today readings",
+      expected: [{ x: 5, y: 0 }].concat(d.curve.map((c) => ({ x: hrs(c.time) || 24, y: c.expected_cum_kwh }))), actual: energy,
+    });
+    if (power.length) {
+      lineDotChart($("c-power"), {
+        title: "Power at each reading (kW)", unit: "kW", fmt: (v) => v.toFixed(2),
+        expectedLabel: "Expected power", actualLabel: "Your power readings",
+        expected: d.curve.map((c) => ({ x: hrs(c.time) - 0.5, y: c.expected_kw })), actual: power,
+      });
+    } else {
+      $("c-power").innerHTML = '<p class="hint">Add a photo of the "power now" screen to compare power through the day.</p>';
+    }
+  }
+
+  function renderReadings(d) {
+    const box = $("d-readings");
+    if (!d.readings.length) {
+      box.innerHTML = '<p class="hint">No readings for this day yet.</p>';
+    } else {
+      const val = (x, u) => (x == null ? "–" : `${x} ${u}`);
+      box.innerHTML = `<div class="table-wrap"><table class="rtable"><thead><tr><th>Time</th><th>Power</th><th>Today</th><th>Total</th><th>From</th><th></th></tr></thead><tbody>
+        ${d.readings.map((r) => `<tr><td>${clock(r.time)}</td><td class="num">${val(r.power_kw, "kW")}</td><td class="num">${val(r.e_today_kwh, "kWh")}</td>
+          <td class="num">${val(r.e_total_kwh, "kWh")}</td><td>${r.source === "photo" ? "Photo" : "Typed"}</td>
+          <td><button type="button" class="link-btn" data-del="${esc(r.time)}" aria-label="Delete reading at ${clock(r.time)}">Remove</button></td></tr>`).join("")}
+      </tbody></table></div>`;
+      box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+        await api(`/systems/${sys.system_id}/readings/delete`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ time: b.dataset.del }) });
+        loadDay(viewDate);
+      }));
+    }
+    const cleaned = d.events.filter((e) => e.type === "cleaned").map((e) => e.time);
+    $("d-events").textContent = cleaned.length ? `Last cleaned: ${cleaned[cleaned.length - 1].slice(0, 10)} at ${clock(cleaned[cleaned.length - 1])}` : "";
+  }
+
+  // ---- adding readings (photos are read by Amazon Bedrock on the server)
+  async function exifTime(file) {
+    try {
+      const v = new DataView(await file.slice(0, 196608).arrayBuffer());
+      if (v.getUint16(0) !== 0xffd8) return null;
+      let off = 2;
+      while (off < v.byteLength - 10) {
+        const marker = v.getUint16(off), size = v.getUint16(off + 2);
+        if (marker === 0xffe1 && v.getUint32(off + 4) === 0x45786966) {
+          const tiff = off + 10, le = v.getUint16(tiff) === 0x4949;
+          const u16 = (o) => v.getUint16(o, le), u32 = (o) => v.getUint32(o, le);
+          const str = (o, n) => { let s = ""; for (let i = 0; i < n - 1; i++) s += String.fromCharCode(v.getUint8(o + i)); return s; };
+          const ifd = (start) => { const t = {}, n = u16(start); for (let i = 0; i < n; i++) { const e = start + 2 + i * 12; t[u16(e)] = { count: u32(e + 4), at: e + 8 }; } return t; };
+          const ifd0 = ifd(tiff + u32(tiff + 4));
+          let dt = null;
+          if (ifd0[0x8769]) { const sub = ifd(tiff + u32(ifd0[0x8769].at)); const t = sub[0x9003] || sub[0x9004]; if (t) dt = str(tiff + u32(t.at), t.count); }
+          if (!dt && ifd0[0x0132]) dt = str(tiff + u32(ifd0[0x0132].at), ifd0[0x0132].count);
+          const m = dt && dt.match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2})/);
+          return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}` : null;
+        }
+        if ((marker & 0xff00) !== 0xff00) break;
+        off += 2 + size;
+      }
+    } catch (_) { /* unreadable EXIF: fall back */ }
+    return null;
+  }
+
+  async function shrink(file) {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.85);
+  }
+
+  function renderReview() {
+    const box = $("r-review");
+    $("r-save").hidden = !review.length;
+    $("r-save").textContent = review.length === 1 ? "Save 1 reading" : `Save ${review.length} readings`;
+    box.innerHTML = review.map((r, i) => `
+      <div class="rrow" data-i="${i}">
+        ${r.thumb ? `<img src="${r.thumb}" alt="Inverter photo ${i + 1}">` : '<div class="nothumb">Typed</div>'}
+        <div class="rfields">
+          <label>Time<input type="datetime-local" data-k="time" value="${esc(r.time || "")}"></label>
+          <label>Power now (kW)<input type="number" step="0.01" min="0" data-k="power_kw" value="${r.power_kw ?? ""}" inputmode="decimal"></label>
+          <label>Today (kWh)<input type="number" step="0.1" min="0" data-k="e_today_kwh" value="${r.e_today_kwh ?? ""}" inputmode="decimal"></label>
+          <label>Total (kWh)<input type="number" step="1" min="0" data-k="e_total_kwh" value="${r.e_total_kwh ?? ""}" inputmode="decimal"></label>
+          <p class="rnote ${r.status === "error" ? "error" : ""}">${esc(r.note || "")}</p>
+        </div>
+        <button type="button" class="link-btn" data-drop="${i}" aria-label="Discard">Discard</button>
+      </div>`).join("");
+    box.querySelectorAll("input[data-k]").forEach((inp) => (inp.oninput = () => {
+      const i = +inp.closest(".rrow").dataset.i, k = inp.dataset.k;
+      review[i][k] = k === "time" ? inp.value : inp.value === "" ? null : parseFloat(inp.value);
+    }));
+    box.querySelectorAll("[data-drop]").forEach((b) => (b.onclick = () => { review.splice(+b.dataset.drop, 1); renderReview(); }));
+  }
+
+  $("r-manual").onclick = () => {
+    const now = new Date(), t = viewDate === todayStr() ? localStamp(now) : `${viewDate}T18:30`;
+    review.push({ time: t, source: "manual", note: "Type the numbers shown on the display." });
+    renderReview();
+  };
+
+  $("r-files").onchange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    $("r-error").hidden = true;
+    for (const file of files) {
+      const row = { source: "photo", note: "Reading the display...", status: "busy" };
+      review.push(row);
+      renderReview();
+      try {
+        const [time, dataUrl] = await Promise.all([exifTime(file), shrink(file)]);
+        row.thumb = dataUrl;
+        row.time = time || localStamp(new Date(file.lastModified || Date.now()));
+        const timeNote = time ? "" : " Photo time not found (WhatsApp copies lose it), so check the time.";
+        renderReview();
+        const r = await api(`/systems/${sys.system_id}/photo`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ image_base64: dataUrl }) });
+        row.photo_key = r.photo_key;
+        if (r.ai_available) {
+          Object.assign(row, { power_kw: r.power_kw, e_today_kwh: r.e_today_kwh, e_total_kwh: r.e_total_kwh });
+          row.note = `Read by AI (${r.confidence} confidence). Check the numbers before saving.${r.notes ? " " + r.notes : ""}${timeNote}`;
+        } else {
+          row.note = (r.message || "AI reading is not available here. Type the numbers.") + timeNote;
+        }
+        row.status = "ok";
+      } catch (ex) {
+        row.status = "error";
+        row.note = ex.message.includes("decode") || ex.name === "InvalidStateError"
+          ? "This photo format can't be opened. Use JPG (set the phone camera to 'Most compatible')."
+          : ex.message;
+      }
+      renderReview();
     }
   };
 
+  $("r-save").onclick = async () => {
+    const err = $("r-error");
+    err.hidden = true;
+    const items = review.map((r) => ({ time: r.time, power_kw: r.power_kw ?? null, e_today_kwh: r.e_today_kwh ?? null,
+      e_total_kwh: r.e_total_kwh ?? null, source: r.source, photo_key: r.photo_key }));
+    const bad = items.find((r) => !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(r.time || "") || (r.power_kw == null && r.e_today_kwh == null && r.e_total_kwh == null));
+    if (bad) { err.textContent = "Every reading needs a time and at least one number."; err.hidden = false; return; }
+    $("r-save").disabled = true;
+    try {
+      await api(`/systems/${sys.system_id}/readings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ readings: items }) });
+      const day = items.map((r) => r.time.slice(0, 10)).sort().pop();
+      review = []; renderReview();
+      await loadDay(day);
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; } finally { $("r-save").disabled = false; }
+  };
+
+  $("d-cleaned").onclick = async () => {
+    const t = viewDate === todayStr() ? localStamp(new Date()) : `${viewDate}T08:00`;
+    await api(`/systems/${sys.system_id}/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "cleaned", time: t }) });
+    loadDay(viewDate);
+  };
+
+  const shiftDay = (n) => { const d = new Date(viewDate + "T12:00"); d.setDate(d.getDate() + n); return localStamp(d).slice(0, 10); };
+  $("d-prev").onclick = () => loadDay(shiftDay(-1));
+  $("d-next").onclick = () => { if (viewDate < todayStr()) loadDay(shiftDay(1)); };
+  $("d-date").onchange = () => { if ($("d-date").value) loadDay($("d-date").value); };
+  $("d-share").onclick = async () => {
+    const link = `${location.origin}${location.pathname}?system=${sys.system_id}#watch`;
+    try { await navigator.clipboard.writeText(link); $("d-share").textContent = "Link copied"; } catch (_) { prompt("Copy this link", link); }
+    setTimeout(() => { $("d-share").textContent = "Copy link"; }, 2000);
+  };
+  $("d-switch").onclick = () => { safeSet(STORE_KEY, null); sys = null; $("w-dash").hidden = true; $("w-setup").hidden = false; };
+
+  function initWatch() {
+    const fromUrl = new URLSearchParams(location.search).get("system");
+    if (fromUrl) safeSet(STORE_KEY, fromUrl);
+    const id = fromUrl || safeGet(STORE_KEY);
+    if (id && API) openSystem(id);
+    else $("w-setup").hidden = false;
+  }
+
   // ------------------------------------------------------------------ boot
   initMap();
+  initWatch();
   showTab(location.hash === "#watch" ? "watch" : "plan");
 })();

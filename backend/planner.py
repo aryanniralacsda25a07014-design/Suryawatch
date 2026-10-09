@@ -151,7 +151,7 @@ def plan(req: dict) -> dict:
 
     notes = []
     if in_delhi and units <= 200:
-        notes.append("Your bill is already Rs 0 under the Delhi free-200-units scheme, so most of your "
+        notes.append("Your bill is already ₹0 under the Delhi free-200-units scheme, so most of your "
                      "return comes from the generation incentive and surplus export credit.")
     if limited_by == "roof":
         notes.append("Your roof, not your usage, limits the system size.")

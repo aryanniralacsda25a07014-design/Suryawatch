@@ -117,7 +117,7 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     elif days_since_clean_or_rain is None or days_since_clean_or_rain >= 3:
         code, title = "dust", "Dust on panels - clean them"
         msg = (f"After allowing for haze, your panels made {panel_loss*100:.0f}% less than they should. "
-               f"That is about Rs {rupees_week:.0f} a week.")
+               f"That is about ₹{rupees_week:.0f} a week.")
         rain = next((d for d in (rain_ahead or [])[:2]
                      if (d.get("rain_mm") or 0) >= 5 and (d.get("rain_prob_pct") or 0) >= 60), None)
         if rain:

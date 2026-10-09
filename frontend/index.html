@@ -101,25 +101,83 @@
     <section id="view-watch" role="tabpanel" aria-labelledby="tab-watch" hidden>
       <div class="intro">
         <h1>Is your solar working as it should?</h1>
-        <p>Already have panels? SuryaWatch compares what your roof makes with what the day's sunlight should give, and tells you whether it is smog, dust or a fault.</p>
+        <p>Photograph your inverter display. SuryaWatch compares what your roof made with what the day's sunlight should give, and tells you whether a shortfall is smog, dust or a fault.</p>
       </div>
-      <div class="card">
-        <h2>Today's sun at your roof</h2>
-        <p class="hint">Uses the location from the Plan tab. Enter your system size to see what it should make today, hour by hour.</p>
-        <div class="field-row three">
-          <label class="field">System size (kW)<input id="w-kwp" type="number" min="0.5" step="0.5" value="3"></label>
-          <label class="field">Panels face
-            <select id="w-facing"><option value="180">South</option><option value="135">South-east</option><option value="225">South-west</option><option value="90">East</option><option value="270">West</option></select>
-          </label>
-          <label class="field">Tilt (°)<input id="w-tilt" type="number" min="0" max="60" step="1" value="20"></label>
+
+      <!-- one-time setup -->
+      <div id="w-setup" class="card" hidden>
+        <h2><span class="step">1</span> Set up your rooftop</h2>
+        <p class="hint">Once per system. This device remembers it, and you can share the link with your family.</p>
+        <div class="field-row">
+          <label class="field">Name<input id="s-name" value="Our rooftop" maxlength="60"></label>
+          <label class="field">Location (latitude, longitude)<input id="s-loc" placeholder="28.7041, 77.1025" inputmode="decimal"></label>
         </div>
-        <button type="button" id="w-btn" class="btn primary">Show today's expected output</button>
-        <p id="w-error" class="error" role="alert" hidden></p>
-        <div id="w-result"></div>
+        <div class="map-tools">
+          <button type="button" id="s-from-plan" class="btn small ghost">Use location from Plan</button>
+          <button type="button" id="s-my" class="btn small ghost">Use my location</button>
+          <span class="hint">Or long-press your building in Google Maps and paste the numbers.</span>
+        </div>
+        <div class="field-row three" style="margin-top:14px">
+          <label class="field">System size (kW)<input id="s-kwp" type="number" min="0.5" step="0.1" value="3" inputmode="decimal"></label>
+          <label class="field">Panels face
+            <select id="s-facing"><option value="180">South</option><option value="135">South-east</option><option value="225">South-west</option><option value="90">East</option><option value="270">West</option><option value="0">North</option></select>
+          </label>
+          <label class="field">Tilt (degrees)<input id="s-tilt" type="number" min="0" max="60" step="1" value="20" inputmode="numeric"></label>
+        </div>
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <label class="field">Value of one unit to you (₹, bill saving plus incentive)
+            <input id="s-unit" type="number" min="1" max="30" step="0.5" value="6" inputmode="decimal">
+          </label>
+        </details>
+        <p id="s-error" class="error" role="alert" hidden></p>
+        <button type="button" id="s-save" class="btn primary wide">Start watching</button>
       </div>
-      <div class="card soon">
-        <h2>Coming next: photo check</h2>
-        <p>Photograph your inverter display. AI on Amazon Bedrock reads the numbers, and SuryaWatch tells you if today's shortfall is smog (not your fault), dust (clean now) or a fault (call your installer).</p>
+
+      <!-- dashboard -->
+      <div id="w-dash" hidden>
+        <div class="card dash-head">
+          <div class="dash-title">
+            <h2 id="d-name">Our rooftop</h2>
+            <p class="hint" id="d-meta"></p>
+          </div>
+          <div class="date-nav">
+            <button type="button" id="d-prev" class="btn small ghost" aria-label="Previous day">‹</button>
+            <input type="date" id="d-date" aria-label="Day">
+            <button type="button" id="d-next" class="btn small ghost" aria-label="Next day">›</button>
+          </div>
+          <div class="dash-actions">
+            <button type="button" id="d-share" class="btn small ghost">Copy link</button>
+            <button type="button" id="d-switch" class="btn small ghost">Other system</button>
+          </div>
+        </div>
+
+        <div class="dash-grid">
+          <section class="card" id="d-verdict" aria-live="polite"><p class="hint">Loading...</p></section>
+
+          <section class="card">
+            <h2>Add readings</h2>
+            <p class="hint">Photograph every screen the inverter shows: power now, today's energy (E-Today) and total energy. Upload original photos, not WhatsApp copies, so the time they were taken comes through.</p>
+            <div class="upload-row">
+              <label class="btn primary file-btn">Upload display photos<input type="file" id="r-files" accept="image/jpeg,image/png,image/webp" multiple hidden></label>
+              <button type="button" id="r-manual" class="btn ghost">Type a reading</button>
+            </div>
+            <div id="r-review"></div>
+            <p id="r-error" class="error" role="alert" hidden></p>
+            <button type="button" id="r-save" class="btn primary wide" hidden>Save readings</button>
+          </section>
+        </div>
+
+        <section class="card" id="d-charts"></section>
+
+        <section class="card">
+          <h2>Readings on this day</h2>
+          <div id="d-readings"></div>
+          <div class="upload-row" style="margin-top:12px">
+            <button type="button" id="d-cleaned" class="btn ghost">We cleaned the panels today</button>
+            <span id="d-events" class="hint"></span>
+          </div>
+        </section>
       </div>
     </section>
   </main>

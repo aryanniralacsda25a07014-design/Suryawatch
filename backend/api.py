@@ -1,20 +1,30 @@
 """SuryaWatch HTTP API - one Lambda behind an API Gateway HTTP API.
 
-Stage 1 routes
-    GET  /health                      liveness check
-    POST /plan                        Plan mode: size, cost, subsidy, payback (saved to DynamoDB)
-    GET  /expected                    expected output curve for a system and date
+Routes
+    GET  /health                              liveness check
+    POST /plan                                Plan mode: size, cost, subsidy, payback
+    GET  /expected                            expected output curve for a location and date
+    POST /systems                             register a rooftop system for Watch mode
+    GET  /systems/{id}                        system details, recent verdicts and events
+    GET  /systems/{id}/day?date=YYYY-MM-DD    readings, expected curve and the day's verdict
+    POST /systems/{id}/photo                  read an inverter-display photo with Amazon Bedrock
+    POST /systems/{id}/readings               save readings (after the owner checks them)
+    POST /systems/{id}/readings/delete        remove one reading
+    POST /systems/{id}/events                 log a cleaning or a note
 """
 from __future__ import annotations
 
 import base64
 import json
+import re
 import traceback
 from datetime import datetime
 
 import planner
+import reader
 import solar
 import store
+import watch
 import weather
 
 JSON_HEADERS = {
@@ -23,6 +33,7 @@ JSON_HEADERS = {
     "access-control-allow-headers": "content-type",
     "access-control-allow-methods": "GET,POST,OPTIONS",
 }
+MAX_PHOTO_BYTES = 4_000_000
 
 
 class BadRequest(ValueError):
@@ -39,9 +50,12 @@ def body_of(event) -> dict:
     if event.get("isBase64Encoded"):
         raw = base64.b64decode(raw).decode("utf-8")
     try:
-        return json.loads(raw) if raw else {}
+        data = json.loads(raw) if raw else {}
     except json.JSONDecodeError as exc:
         raise BadRequest("Request body must be JSON.") from exc
+    if not isinstance(data, (dict, list)):
+        raise BadRequest("Request body must be a JSON object.")
+    return data
 
 
 def num(params: dict, key: str, default=None, lo=None, hi=None) -> float:
@@ -57,12 +71,12 @@ def num(params: dict, key: str, default=None, lo=None, hi=None) -> float:
     return x
 
 
-# --------------------------------------------------------------------------- handlers
-def health(_event, _params):
-    return {"ok": True, "service": "suryawatch", "stage": 1}
+# --------------------------------------------------------------------------- Plan
+def health(_e, _p, _m):
+    return {"ok": True, "service": "suryawatch", "stage": 2, "storage": "aws" if store.on_aws() else "local"}
 
 
-def make_plan(event, _params):
+def make_plan(event, _p, _m):
     req = body_of(event)
     num(req, "lat", lo=-90, hi=90)
     num(req, "lon", lo=-180, hi=180)
@@ -75,7 +89,7 @@ def make_plan(event, _params):
     return {"plan_id": plan_id, **result}
 
 
-def expected_curve(_event, params):
+def expected_curve(_e, params, _m):
     lat = num(params, "lat", lo=-90, hi=90)
     lon = num(params, "lon", lo=-180, hi=180)
     kwp = num(params, "kwp", lo=0.1, hi=1000)
@@ -83,37 +97,99 @@ def expected_curve(_event, params):
     facing = num(params, "facing", 180, lo=0, hi=360)
     date = params.get("date") or datetime.now(solar.IST).date().isoformat()
     rows = weather.sunlight_hourly(lat, lon, tilt, facing, date, date)
-    system = {"lat": lat, "lon": lon, "kwp": kwp, "pr_ref": params.get("pr")}
-    hourly = solar.expected_hourly(system, rows)
-    return {
-        "date": date,
-        "expected_kwh": round(solar.expected_energy_until(hourly, date), 2),
-        "sky": solar.day_sky_summary(hourly, date),
-        "hourly": hourly,
-    }
+    hourly = solar.expected_hourly({"lat": lat, "lon": lon, "kwp": kwp, "pr_ref": params.get("pr")}, rows)
+    return {"date": date, "expected_kwh": round(solar.expected_energy_until(hourly, date), 2),
+            "sky": solar.day_sky_summary(hourly, date), "hourly": hourly}
 
 
-ROUTES = {
-    ("GET", "/health"): health,
-    ("POST", "/plan"): make_plan,
-    ("GET", "/expected"): expected_curve,
-}
+# --------------------------------------------------------------------------- Watch
+def create_system(event, _p, _m):
+    return watch.create_system(body_of(event))
+
+
+def get_system(_e, _p, m):
+    return watch.system_summary(m["sid"])
+
+
+def day(_e, params, m):
+    return watch.day_view(m["sid"], params.get("date"))
+
+
+def read_photo(event, _p, m):
+    watch.get_system(m["sid"])
+    req = body_of(event)
+    raw = str(req.get("image_base64") or "")
+    if raw.startswith("data:"):
+        raw = raw.split(",", 1)[-1]
+    try:
+        image = base64.b64decode(raw, validate=False)
+    except Exception as exc:
+        raise BadRequest("The photo could not be decoded.") from exc
+    if len(image) < 1000:
+        raise BadRequest("Please attach a photo of the inverter display.")
+    if len(image) > MAX_PHOTO_BYTES:
+        raise BadRequest("That photo is too large. Please use one under 4 MB.")
+    fmt = "png" if image[:8] == b"\x89PNG\r\n\x1a\n" else "webp" if image[8:12] == b"WEBP" else "jpeg"
+    key = store.save_photo(m["sid"], image, "jpg" if fmt == "jpeg" else fmt)
+    try:
+        values = reader.read_display(image, fmt)
+    except reader.ReaderUnavailable as exc:
+        return {"photo_key": key, "ai_available": False, "message": str(exc)}
+    return {"photo_key": key, "ai_available": True, **values}
+
+
+def save_readings(event, _p, m):
+    req = body_of(event)
+    items = req.get("readings") if isinstance(req, dict) else req
+    saved = watch.add_readings(m["sid"], items)
+    return {"saved": len(saved), "readings": saved}
+
+
+def delete_reading(event, _p, m):
+    watch.delete_reading(m["sid"], body_of(event).get("time"))
+    return {"deleted": True}
+
+
+def add_event(event, _p, m):
+    return watch.add_event(m["sid"], body_of(event))
+
+
+SID = r"(?P<sid>[a-z0-9]{1,20})"
+ROUTES = [
+    ("GET", r"/health", health),
+    ("POST", r"/plan", make_plan),
+    ("GET", r"/expected", expected_curve),
+    ("POST", r"/systems", create_system),
+    ("GET", rf"/systems/{SID}", get_system),
+    ("GET", rf"/systems/{SID}/day", day),
+    ("POST", rf"/systems/{SID}/photo", read_photo),
+    ("POST", rf"/systems/{SID}/readings", save_readings),
+    ("POST", rf"/systems/{SID}/readings/delete", delete_reading),
+    ("POST", rf"/systems/{SID}/events", add_event),
+]
 
 
 def handler(event, _context):
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
-    path = event.get("rawPath", "/")
+    path = (event.get("rawPath") or "/").rstrip("/") or "/"
     if method == "OPTIONS":
         return respond(204, None)
-    fn = ROUTES.get((method, path.rstrip("/") or "/"))
-    if fn is None:
+    for route_method, pattern, fn in ROUTES:
+        m = re.fullmatch(pattern, path)
+        if m and route_method == method:
+            break
+    else:
         return respond(404, {"error": f"No route for {method} {path}"})
     try:
-        return respond(200, fn(event, event.get("queryStringParameters") or {}))
+        return respond(200, fn(event, event.get("queryStringParameters") or {}, m.groupdict()))
+    except watch.NotFound as exc:
+        return respond(404, {"error": str(exc)})
     except (BadRequest, ValueError) as exc:
         return respond(400, {"error": str(exc)})
     except Exception as exc:
         traceback.print_exc()
-        return respond(502 if "urlopen" in repr(exc) or "timed out" in str(exc) else 500,
-                       {"error": "Something went wrong on our side. Please try again.",
+        upstream = "urlopen" in repr(exc) or "timed out" in str(exc) or "HTTP Error" in str(exc)
+        return respond(502 if upstream else 500,
+                       {"error": "A data source did not answer. Please try again in a minute." if upstream
+                        else "Something went wrong on our side. Please try again.",
                         "detail": str(exc)[:200]})
