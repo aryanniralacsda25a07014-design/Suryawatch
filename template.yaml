@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SuryaWatch - plan rooftop solar, then watch it perform.
+  Environmental Hacks 2026 (WeMakeDevs x AWS), Track 03 Waste and Energy.
+
+Parameters:
+  BedrockModelId:
+    Type: String
+    Default: us.amazon.nova-2-lite-v1:0
+    Description: Bedrock model or inference profile used to read inverter photos and write advice.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    Timeout: 29
+    MemorySize: 512
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref DataTable
+        PHOTO_BUCKET: !Ref PhotoBucket
+        MODEL_ID: !Ref BedrockModelId
+
+Resources:
+  # ---------------------------------------------------------------- API
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: ["*"]
+        AllowMethods: [GET, POST, OPTIONS]
+        AllowHeaders: [content-type]
+        MaxAge: 600
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: SuryaWatch API (plan, expected output, watch)
+      CodeUri: backend/
+      Handler: api.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DataTable
+        - S3CrudPolicy:
+            BucketName: !Ref PhotoBucket
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+              Resource: "*"
+      Events:
+        AnyRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+  # ---------------------------------------------------------------- data
+  DataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: ["*"]
+            AllowedMethods: [PUT, GET]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+
+  # ---------------------------------------------------------------- web app hosting
+  WebApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: suryawatch
+      Platform: WEB
+      Description: SuryaWatch web app (manual deploys from scripts/deploy.sh)
+
+  WebBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt WebApp.AppId
+      BranchName: main
+      Stage: PRODUCTION
+      EnableAutoBuild: false
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the SuryaWatch API
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  WebAppId:
+    Description: Amplify app id (used by scripts/deploy.sh)
+    Value: !GetAtt WebApp.AppId
+  WebUrl:
+    Description: Public URL of the web app
+    Value: !Sub https://main.${WebApp.DefaultDomain}
+  PhotoBucketName:
+    Value: !Ref PhotoBucket
+  TableName:
+    Value: !Ref DataTable

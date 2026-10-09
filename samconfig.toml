@@ -1,0 +1,10 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "suryawatch"
+region = "us-east-1"
+resolve_s3 = true
+s3_prefix = "suryawatch"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+fail_on_empty_changeset = false
