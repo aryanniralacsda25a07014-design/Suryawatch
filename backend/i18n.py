@@ -24,12 +24,12 @@ TEXT = {
         "fault.msg": "Output fell to {pi}% of expected, far below your recent {median}%. Check the inverter for an error "
                      "code or a tripped switch, then call your installer.",
         "dust.title": "Dust on panels - clean them",
-        "dust.msg": "After allowing for haze, your panels made {loss}% less than they should. That is about ₹{rupees} a week.",
+        "dust.msg": "Leaving the haze aside, your panels made {loss}% less than the sunlight allowed. That is about ₹{rupees} a week.",
         "dust.rain": " Rain is likely on {date} - wait for it and save the water.",
         "dust.clean": " Clean early morning or evening with plain water and a soft cloth.",
         "check.title": "Lower than expected",
-        "check.msg": "Output is {loss}% below expected even though the panels were cleaned or rained on recently. Look for "
-                     "new shade, a loose cable or inverter warnings.",
+        "check.msg": "Leaving the haze aside, output is {loss}% below what the sunlight allowed, even though the panels were "
+                     "cleaned or rained on recently. Look for new shade, a loose cable or inverter warnings.",
         "area.title": "Low across your area - your panels are fine",
         "area.msg": "Most SuryaWatch rooftops within {km} km were low today too ({n} roofs, middle value {median}%), so the sky "
                     "cut the output, not dirt or a fault on your panels. Nothing to fix.",
@@ -81,12 +81,12 @@ TEXT = {
         "fault.msg": "उत्पादन अनुमान का सिर्फ़ {pi}% रह गया, जो आपके हाल के {median}% से बहुत कम है। इन्वर्टर पर कोई एरर कोड "
                      "या गिरा हुआ स्विच देखें, फिर अपने इंस्टॉलर को फ़ोन करें।",
         "dust.title": "पैनलों पर धूल – सफ़ाई करें",
-        "dust.msg": "धुंध का असर हटाने के बाद भी आपके पैनलों ने {loss}% कम बिजली बनाई। यह हर हफ़्ते लगभग ₹{rupees} का नुकसान है।",
+        "dust.msg": "धुंध का असर अलग रखें तो भी आपके पैनलों ने धूप से संभव बिजली से {loss}% कम बनाई। यह हर हफ़्ते लगभग ₹{rupees} का नुकसान है।",
         "dust.rain": " {date} को बारिश की संभावना है – उसका इंतज़ार करें और पानी बचाएँ।",
         "dust.clean": " सुबह जल्दी या शाम को सादे पानी और मुलायम कपड़े से साफ़ करें।",
         "check.title": "उम्मीद से कम",
-        "check.msg": "हाल ही में पैनल साफ़ हुए या बारिश हुई, फिर भी उत्पादन अनुमान से {loss}% कम है। कोई नई छाया, ढीला तार या "
-                     "इन्वर्टर की चेतावनी देखें।",
+        "check.msg": "हाल ही में पैनल साफ़ हुए या बारिश हुई, फिर भी धुंध का असर अलग रखकर उत्पादन धूप से संभव से {loss}% कम है। "
+                     "कोई नई छाया, ढीला तार या इन्वर्टर की चेतावनी देखें।",
         "area.title": "पूरे इलाके में कम – आपके पैनल ठीक हैं",
         "area.msg": "{km} किमी के अंदर ज़्यादातर SuryaWatch छतों पर भी आज उत्पादन कम रहा ({n} छतें, बीच का मान {median}%), "
                     "इसलिए कमी आसमान की वजह से है, आपके पैनलों की धूल या खराबी से नहीं। कुछ ठीक करने की ज़रूरत नहीं।",

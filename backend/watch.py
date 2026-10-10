@@ -301,7 +301,7 @@ def day_view(sid: str, date: str | None = None, lang: str = "en") -> dict:
         v = {**v, "code": "area", "title": tr(lang, "area.title"), "message": msg}
     if v.get("code") not in ("no_data", "too_early"):
         keep = ("date", "code", "final", "actual_kwh", "expected_kwh", "performance",
-                "performance_after_haze", "haze_loss", "panel_loss", "lost_kwh", "rupees_lost_per_week",
+                "performance_after_haze", "haze_loss", "panel_loss", "shortfall", "panel_share", "lost_kwh", "rupees_lost_per_week",
                 "aod", "pm25", "reading_time")
         store.put(pk, f"VERDICT#{date}", {**{k: v.get(k) for k in keep}, "sig": readings_sig(readings)})
 

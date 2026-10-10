@@ -515,17 +515,26 @@
     const badge = `<span class="badge ${st.cls}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${st.icon}"/></svg>${t(st.label)}</span>`;
     let stats = "";
     if (v.actual_kwh != null) {
+      // shares of what the sunlight allowed: performance + generation shortfall = 100%,
+      // and the shortfall splits into the haze and the rest (this roof's panels)
+      // whole percentages chosen so they add up exactly after rounding
+      const perfPct = Math.round(Math.min(1, v.performance || 0) * 100), shortPct = 100 - perfPct;
+      const panelShare = v.panel_share != null ? v.panel_share : Math.max(0, 1 - (v.performance || 0) - (v.haze_loss || 0));
+      const panelPct = Math.min(shortPct, Math.round(panelShare * 100)), hazePct = shortPct - panelPct;
+      const split = v.code === "area" ? t("all from the sky: haze and the area-wide dip")
+        : shortPct === 0 ? "" : t("haze {h} · your panels {p}", { h: hazePct + "%", p: panelPct + "%" });
+      const sub = (x) => (x ? `<div class="stat-sub">${esc(x)}</div>` : "");
       stats = `<div class="stats">
         <div class="stat"><div class="label">${t(v.final ? "Made" : "Made so far")}</div><div class="value num">${v.actual_kwh} kWh</div></div>
         <div class="stat"><div class="label">${t("Sunlight allowed")}</div><div class="value num">${v.expected_kwh} kWh</div></div>
-        <div class="stat"><div class="label">${t("Performance")}</div><div class="value num">${pct(v.performance)}</div></div>
-        <div class="stat"><div class="label">${t("Haze cut sunlight")}</div><div class="value num">${pct(v.haze_loss)}</div></div>
-        <div class="stat"><div class="label">${t("Panel loss")}</div><div class="value num">${v.code === "area" ? "–" : pct(v.panel_loss)}</div></div>
-        <div class="stat"><div class="label">${t("Lost per week")}</div><div class="value num">${v.code === "area" ? "–" : inr(v.rupees_lost_per_week || 0)}</div></div>
+        <div class="stat"><div class="label">${t("Performance")}</div><div class="value num">${perfPct}%</div>${sub(v.performance > 1.005 ? t("made a little more than the estimate") : "")}</div>
+        <div class="stat"><div class="label">${t("Generation shortfall")}</div><div class="value num">${shortPct}%</div>${sub(split)}</div>
+        <div class="stat"><div class="label">${t("Lost per week")}</div><div class="value num">${v.code === "area" ? "–" : inr(v.rupees_lost_per_week || 0)}</div>${sub(v.code === "area" ? "" : t("from your panels' share"))}</div>
+        <div class="stat"><div class="label">${t(d.is_today ? "Air today" : "Air that day")}</div><div class="value num">${v.pm25 != null ? `PM2.5 ${Math.round(v.pm25)}` : "–"}</div>${sub(v.aod != null ? t("aerosol depth {aod}", { aod: v.aod }) : "")}</div>
       </div>`;
     }
     const total = d.curve.length ? d.curve[d.curve.length - 1].expected_cum_kwh : null;
-    const air = v.pm25 != null ? t("Air: PM2.5 {pm} µg/m³, aerosol depth {aod}.", { pm: Math.round(v.pm25), aod: v.aod }) : "";
+    const air = v.pm25 != null && v.actual_kwh == null ? t("Air: PM2.5 {pm} µg/m³, aerosol depth {aod}.", { pm: Math.round(v.pm25), aod: v.aod }) : "";
     const sky = v.sky && v.sky.sky_factor != null ? " " + t("Sunlight {n}% of a clear day.", { n: Math.round(v.sky.sky_factor * 100) }) : "";
     const should = t(d.is_today ? "Today a {kw} kW system here should make about {kwh} kWh in total." : "That day a {kw} kW system here should make about {kwh} kWh in total.",
       { kw: sys.kwp, kwh: "\u0000" }).split("\u0000");
@@ -547,7 +556,7 @@
       shareWhatsApp(lines.join("\n"));
     };
     helperBox($("watch-ask"), "watch", () => ({ date: d.date, system_kw: sys.kwp, result: v.title, explanation: v.message,
-      made_kwh: v.actual_kwh, sunlight_allowed_kwh: v.expected_kwh, haze_loss: v.haze_loss, panel_loss: v.panel_loss,
+      made_kwh: v.actual_kwh, sunlight_allowed_kwh: v.expected_kwh, haze_loss: v.haze_loss, generation_shortfall: v.shortfall, shortfall_from_panels: v.panel_share,
       rupees_lost_per_week: v.rupees_lost_per_week, pm25: v.pm25, aerosol_optical_depth: v.aod }));
   }
 

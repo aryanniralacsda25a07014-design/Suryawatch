@@ -95,7 +95,12 @@ class PlannerTests(unittest.TestCase):
     def test_small_roof_limits_size(self):
         r = planner.plan({"lat": DELHI[0], "lon": DELHI[1], "roof_area_m2": 25, "monthly_units": 900})
         self.assertEqual(r["limited_by"], "roof")
-        self.assertEqual(r["system_kw"], 1.5)
+        self.assertEqual((r["panels_approx"], r["system_kw"]), (3, 1.65))      # 17.5 m2 usable fits 3 panels
+
+    def test_size_is_whole_panels_not_rounded(self):
+        r = planner.plan({"lat": DELHI[0], "lon": DELHI[1], "roof_area_m2": 80, "monthly_units": 410, "state": "delhi"})
+        self.assertAlmostEqual(r["system_kw"], r["panels_approx"] * 0.55, places=6)
+        self.assertNotEqual(r["system_kw"] * 2, int(r["system_kw"] * 2))        # e.g. 3.3 kW, not cut down to 3
 
     def test_bill_input_and_errors(self):
         r = planner.plan({"lat": DELHI[0], "lon": DELHI[1], "roof_area_m2": 80, "monthly_bill": 2150})

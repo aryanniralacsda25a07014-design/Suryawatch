@@ -96,6 +96,10 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
     expected_after_haze = expected * (1 - haze)
     pi_adj = actual / expected_after_haze if expected_after_haze > 0 else pi
     panel_loss = max(0.0, 1 - pi_adj)
+    # shares of what the sunlight allowed, so they add up: performance + shortfall = 100%,
+    # and the shortfall is the haze plus whatever is left over (dust, shade or a fault on this roof)
+    shortfall = max(0.0, 1 - pi)
+    panel_share = max(0.0, 1 - pi - haze)
     unit_value = float(system.get("unit_value") or DEFAULT_UNIT_VALUE)
     lost_kwh = max(0.0, expected_after_haze - actual)
     day_fraction = 1.0 if final else max(expected / max(day_total, 0.01), 0.05)
@@ -105,6 +109,7 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
               "actual_kwh": round(actual, 2), "expected_kwh": round(expected, 2),
               "performance": round(pi, 3), "haze_loss": round(haze, 3),
               "performance_after_haze": round(pi_adj, 3), "panel_loss": round(panel_loss, 3),
+              "shortfall": round(shortfall, 3), "panel_share": round(panel_share, 3),
               "lost_kwh": round(lost_kwh, 2), "rupees_lost_per_week": round(rupees_week, 0)}
 
     cloudy = sky.get("sky_factor") is not None and sky["sky_factor"] < 0.45
@@ -126,13 +131,13 @@ def diagnose_day(system: dict, date: str, readings: list[dict], hourly: list[dic
         msg = tr(L, "fault.msg", pi=pct(pi_adj), median=pct(median(prev_adj)))
     elif days_since_clean_or_rain is None or days_since_clean_or_rain >= 3:
         code = "dust"
-        msg = tr(L, "dust.msg", loss=pct(panel_loss), rupees=f"{rupees_week:.0f}")
+        msg = tr(L, "dust.msg", loss=pct(panel_share), rupees=f"{rupees_week:.0f}")
         rain = next((d for d in (rain_ahead or [])[:2]
                      if (d.get("rain_mm") or 0) >= 5 and (d.get("rain_prob_pct") or 0) >= 60), None)
         msg += tr(L, "dust.rain", date=rain["date"]) if rain else tr(L, "dust.clean")
     else:
         code = "check"
-        msg = tr(L, "check.msg", loss=pct(panel_loss))
+        msg = tr(L, "check.msg", loss=pct(panel_share))
 
     if cloudy:
         msg += tr(L, "cloudy")

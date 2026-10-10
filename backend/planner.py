@@ -21,6 +21,9 @@ from weather import monthly_ghi
 
 SLABS = [(200, 3.0), (200, 4.5), (400, 6.5), (400, 7.0), (math.inf, 8.0)]
 M2_PER_KW = 10.0            # shade-free roof area needed per kW (MNRE rule of thumb)
+PANEL_W = 550               # a common rooftop module today; the plan is sized in whole panels of this size
+MIN_PANELS = 2              # 1.1 kW, about the smallest rooftop system vendors install
+MAX_KW = 10.0               # the residential range the Delhi incentive covers
 TILT_GAIN = 1.08            # annual gain of a tilted, south-facing panel over flat ground
 PLAN_PR = 0.77              # whole-system performance ratio incl. heat losses, for planning
 DEGRADATION = 0.005         # panel output lost per year
@@ -107,14 +110,14 @@ def plan(req: dict) -> dict:
     usable_area = roof_area * usable_fraction
     max_by_roof = usable_area / M2_PER_KW
     need_kw = units * 12 / yearly_per_kwp
-    kw = min(max_by_roof, need_kw, 10.0)
-    kw = math.floor(kw * 2) / 2            # vendors sell in 0.5 kW steps
     limited_by = "roof" if max_by_roof < need_kw else "usage"
-    if kw < 1.0:
-        if max_by_roof >= 1.0:
-            kw = 1.0
-        else:
-            raise ValueError(f"The usable roof ({usable_area:.0f} m2) fits less than 1 kW of panels.")
+    # size in whole panels, so the kW shown is exactly panels x 550 W (no rounding to 0.5 or 1 kW)
+    fits = math.floor(max_by_roof * 1000 / PANEL_W + 1e-9)
+    wanted = max(MIN_PANELS, round(need_kw * 1000 / PANEL_W))
+    panels = min(fits, wanted, math.floor(MAX_KW * 1000 / PANEL_W))
+    if panels < MIN_PANELS:
+        raise ValueError(f"The usable roof ({usable_area:.0f} m2) fits less than 1 kW of panels.")
+    kw = round(panels * PANEL_W / 1000, 2)
 
     gross_cost = kw * cost_per_kw
     sub_central = central_subsidy(kw)
@@ -174,7 +177,7 @@ def plan(req: dict) -> dict:
                    "monthly_units": units, "state": "delhi" if in_delhi else "other",
                    "cost_per_kw": cost_per_kw, "export_rate": export_rate},
         "system_kw": kw,
-        "panels_approx": math.ceil(kw * 1000 / 550),
+        "panels_approx": panels,
         "limited_by": limited_by,
         "yearly_generation_kwh": round(yearly_gen, 0),
         "yield_kwh_per_kwp": round(yearly_per_kwp, 0),

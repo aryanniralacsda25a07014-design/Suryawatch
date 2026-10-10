@@ -61,25 +61,20 @@
               <span class="with-unit"><input id="area" type="number" min="1" step="1" inputmode="decimal" required>
                 <select id="area-unit" aria-label="Area unit"><option value="sqft">sq ft</option><option value="m2">m²</option></select></span>
             </label>
-            <label class="field">Usable for panels
-              <span class="with-unit"><input id="usable" type="number" min="30" max="100" step="5" value="70" inputmode="numeric"><span class="unit">%</span></span>
-            </label>
-          </div>
-          <p class="hint">Leave out the water tank, stair room and edges. Most roofs are 60–80% usable.</p>
-
-          <div class="field-row">
-            <fieldset class="field">
-              <legend>Monthly electricity</legend>
-              <div class="seg" role="radiogroup">
-                <label><input type="radio" name="usage-kind" value="units" checked> Units</label>
-                <label><input type="radio" name="usage-kind" value="bill"> Bill (₹)</label>
-              </div>
-              <input id="usage" type="number" min="1" step="1" inputmode="numeric" placeholder="e.g. 400" aria-label="Monthly units or bill" required>
-            </fieldset>
             <label class="field">State
               <select id="state"><option value="delhi">Delhi</option><option value="other">Other state</option></select>
             </label>
           </div>
+          <p class="hint">Enter the whole roof. SuryaWatch counts about 70% of it for panels, leaving room for the water tank, stairs and edges.</p>
+
+          <fieldset class="field usage-field">
+            <legend>Monthly electricity</legend>
+            <div class="seg" role="radiogroup">
+              <label><input type="radio" name="usage-kind" value="units" checked> Units</label>
+              <label><input type="radio" name="usage-kind" value="bill"> Bill (₹)</label>
+            </div>
+            <input id="usage" type="number" min="1" step="1" inputmode="numeric" placeholder="e.g. 400" aria-label="Monthly units or bill" required>
+          </fieldset>
 
           <div class="bill-row">
             <label class="btn small ghost file-btn">Read my bill from a photo<input type="file" id="bill-file" accept="image/jpeg,image/png,image/webp" hidden></label>
@@ -93,6 +88,9 @@
             </label>
             <label class="field">Sanctioned load (kW, printed on your bill)
               <input id="sload" type="number" min="0.5" step="0.5" placeholder="e.g. 3" inputmode="decimal">
+            </label>
+            <label class="field">Share of the roof that can hold panels (%)
+              <input id="usable" type="number" min="30" max="100" step="5" value="70" inputmode="numeric">
             </label>
           </details>
 
