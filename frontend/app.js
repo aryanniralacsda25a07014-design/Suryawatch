@@ -480,6 +480,7 @@
     renderHead();
     $("d-date").max = todayStr();
     loadOutlook();
+    loadDust();
     await loadDay(viewDate);
   }
 
@@ -746,6 +747,7 @@
       const day = items.map((r) => r.time.slice(0, 10)).sort().pop();
       review = []; renderReview();
       await loadDay(day);
+      loadDust();
     } catch (ex) { say(err, ex.message); err.hidden = false; } finally { $("r-save").disabled = false; }
   };
 
@@ -753,6 +755,7 @@
     const time = viewDate === todayStr() ? localStamp(new Date()) : `${viewDate}T08:00`;
     await api(`/systems/${sys.system_id}/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "cleaned", time }) });
     loadDay(viewDate);
+    loadDust();
   };
 
   const shiftDay = (n) => { const d = new Date(viewDate + "T12:00"); d.setDate(d.getDate() + n); return localStamp(d).slice(0, 10); };
@@ -904,6 +907,113 @@
       box.hidden = false;
       box.innerHTML = `<h2>${t("Next two days")}</h2><p class="hint">${esc(t("The forecast is not available right now ({why}).", { why: ex.message }))}</p>`;
     }
+  }
+
+  // ---- dust build-up and the best day to clean
+  let dustData = null;
+  const CAL_ICON = "M5 7h14v12H5zM5 11h14M9 4v4M15 4v4";
+  const DUST_ADVICE = {
+    clean_now: { cls: "serious", icon: STATUS.dust.icon, title: "Clean today or tomorrow morning",
+                 msg: "Dust now costs more than a cleaning. Clean early in the morning or in the evening with plain water and a soft cloth." },
+    clean_on: { cls: "good", icon: CAL_ICON, title: "Best day to clean: {date}", msg: "Until then, dust costs you less than a cleaning would." },
+    wait_rain: { cls: "none", icon: OUTLOOK.rain.icon, title: "Wait for the rain on {date}",
+                 msg: "About {mm} mm of rain is forecast. It will wash the panels for free, so save the water and the cost." },
+    no_buildup: { cls: "good", icon: STATUS.healthy.icon, title: "No dust build-up seen yet",
+                  msg: "Your panels are keeping their output between washes. Keep adding evening readings." },
+    unknown_wash: { cls: "none", icon: CAL_ICON, title: "When were the panels last washed?",
+                    msg: "Press \"We cleaned the panels today\" after the next cleaning to start the count. Rain is counted by itself." },
+  };
+
+  async function loadDust() {
+    if (!sys) return;
+    const box = $("d-dust");
+    try {
+      dustData = await api(`/systems/${sys.system_id}/dust`);
+      renderDust(dustData);
+    } catch (ex) {
+      box.hidden = false;
+      box.innerHTML = `<h2>${t("Dust and the best day to clean")}</h2><p class="hint">${esc(ex.message)}</p>`;
+    }
+  }
+
+  function renderDust(d) {
+    const box = $("d-dust"), a = d.advice, adv = DUST_ADVICE[a.code] || DUST_ADVICE.unknown_wash;
+    const dayName = (x) => niceDate(x, { weekday: "long", day: "numeric", month: "short" });
+    const vars = { date: a.date ? dayName(a.date) : "", mm: a.rain_mm };
+    const stat = (label, value, sub) => `<div class="stat"><div class="label">${t(label)}</div><div class="value num">${value}</div>${sub ? `<div class="stat-sub">${esc(sub)}</div>` : ""}</div>`;
+    const rateSub = d.rate_source === "learned"
+      ? t(d.learned.confidence === "good" ? "learned from {n} days on your roof" : "rough estimate from {n} days on your roof", { n: d.learned.n })
+      : t("typical value, until {n} more evening readings", { n: Math.max(1, d.points_needed) });
+    const last = d.last_wash;
+    box.hidden = false;
+    box.innerHTML = `
+      <h2>${t("Dust and the best day to clean")}</h2>
+      <div class="dust-advice">
+        <span class="badge ${adv.cls}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${adv.icon}"/></svg>${esc(t(adv.title, vars))}</span>
+        <p>${esc(t(adv.msg, vars))}${a.code === "wait_rain" && a.rain_prob != null ? " " + esc(t("({n}% chance)", { n: a.rain_prob })) : ""}</p>
+      </div>
+      <div class="stats four">
+        ${stat("Dust build-up", t("{n}% a day", { n: (d.rate * 100).toFixed(1) }), rateSub)}
+        ${stat("Since the last wash", d.days_since != null ? t("{n} days", { n: d.days_since }) : "–",
+          last ? t(last.kind === "rain" ? "rain, from {date}" : "cleaned, from {date}", { date: niceDate(last.date, { day: "numeric", month: "short" }) }) : t("not known yet"))}
+        ${stat("Dust is costing you", d.rupees_day_now != null ? t("{rs} a day", { rs: inr(d.rupees_day_now) }) : "–",
+          d.loss_now != null ? t("about {pct} of output", { pct: pct(d.loss_now) }) : "")}
+        ${stat("Clean about every", d.best_interval_days ? t("{n} days", { n: d.best_interval_days }) : "–",
+          t("when one cleaning costs {rs}", { rs: inr(d.clean_cost) }))}
+      </div>
+      <div id="dust-chart"></div>
+      <div class="dust-cost">
+        <label class="field" for="dust-cost">${t("Cost of one cleaning (₹)")}</label>
+        <div class="search-row">
+          <input id="dust-cost" type="number" min="0" max="5000" step="10" inputmode="numeric" value="${Math.round(d.clean_cost)}">
+          <button type="button" id="dust-save" class="btn ghost">${t("Save")}</button>
+        </div>
+        <p class="hint" id="dust-msg">${t("A paid cleaner, or your own water and time. SuryaWatch weighs this against what dust costs you.")}</p>
+      </div>
+      <p class="hint">${esc(d.rate_source === "learned"
+        ? t("Learned from {n} evening readings in {k} clean spell(s). A cleaning, or a day with 2 mm of rain or more, counts as a wash.", { n: d.learned.n, k: d.learned.spells })
+        : t("Typical rate: 0.4% of output lost a day, measured on an IIT Bombay rooftop in the dry season. SuryaWatch switches to your roof's own rate once it has enough evening readings after a wash."))}</p>`;
+    dustChart($("dust-chart"), d);
+    $("dust-save").onclick = async () => {
+      try {
+        await api(`/systems/${sys.system_id}/settings`, { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ clean_cost: $("dust-cost").value }) });
+        await loadDust();
+        say($("dust-msg"), "Saved.");
+      } catch (ex) { say($("dust-msg"), ex.message); }
+    };
+  }
+
+  // performance after haze against days since a wash: your readings (dots) and the fitted dust trend (line)
+  function dustChart(el, d) {
+    if (!d.points.length || !d.line) { el.innerHTML = ""; return; }
+    const W = Math.round(Math.max(300, el.clientWidth || 560)), H = 210, ml = 44, mr = 12, mt = 12, mb = 32;
+    const iw = W - ml - mr, ih = H - mt - mb;
+    const xmax = Math.max(7, d.line.x_max, ...d.points.map((p) => p.x)) + 1;     // a day of room on the right
+    const lineY = (x) => d.line.y0 - d.line.rate * x;
+    const ys = d.points.map((p) => p.y).concat(lineY(0), lineY(xmax));
+    const lo = Math.max(0, Math.floor((Math.min(...ys) - 0.03) * 20) / 20), hi = Math.ceil((Math.max(...ys) + 0.02) * 20) / 20;
+    const X = (x) => ml + (x / xmax) * iw, Y = (v) => mt + ih - ((v - lo) / (hi - lo)) * ih;
+    const step = niceStep((hi - lo) * 100, 4) / 100;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t("Output after haze against days since a wash"))}">`;
+    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+      svg += `<line class="gridline" x1="${ml}" x2="${W - mr}" y1="${Y(v)}" y2="${Y(v)}"/><text class="axis-text" x="${ml - 8}" y="${Y(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`;
+    }
+    const xs = niceStep(xmax, 6);
+    for (let x = 0; x <= xmax + 1e-9; x += xs) svg += `<text class="axis-text" x="${X(x)}" y="${H - 12}" text-anchor="middle">${x}</text>`;
+    svg += `<path class="exp-line" d="M${X(0)},${Y(lineY(0))} L${X(xmax)},${Y(lineY(xmax))}"/>`;
+    d.points.forEach((p, i) => { svg += `<circle class="dot" data-i="${i}" cx="${X(p.x)}" cy="${Y(p.y)}" r="5"/>`; });
+    svg += "</svg>";
+    el.innerHTML = `<p class="chart-title">${t("Output after haze against days since a wash")}</p>
+      <div class="legend"><span><i class="key-line"></i>${t("Your roof's dust trend")}</span><span><i class="key-dot"></i>${t("Each evening reading")}</span></div>
+      <div class="chart">${svg}</div><p class="axis-note">${t("Days since the panels were washed")}</p>`;
+    el.querySelectorAll(".dot").forEach((c) => {
+      const p = d.points[+c.dataset.i];
+      const html = `<b>${esc(niceDate(p.date, { weekday: "short", day: "numeric", month: "short" }))}</b><br>${esc(t("{n} days after a wash: {pct} of possible output", { n: p.x, pct: pct(p.y) }))}`;
+      c.addEventListener("mousemove", (ev) => showTip(html, ev));
+      c.addEventListener("click", (ev) => showTip(html, ev));
+      c.addEventListener("mouseleave", hideTip);
+    });
   }
 
   function renderPromise(p) {
@@ -1347,7 +1457,7 @@
     drawLabel();
     SAID.forEach((el) => { if (el.isConnected && el._say) el.textContent = el._say[0] ? t(el._say[0], el._say[1]) : ""; });
     if (lastPlanBody) runPlan(lastPlanBody).catch(() => { /* keep the old result */ });
-    if (sys && !$("w-dash").hidden) { renderHead(); loadOutlook(); loadDay(viewDate); }
+    if (sys && !$("w-dash").hidden) { renderHead(); loadOutlook(); loadDay(viewDate); if (dustData) renderDust(dustData); }
     if (impactData) renderImpact(impactData);
     if (reportData && !$("view-report").hidden) renderReport(reportData);
     renderReview();

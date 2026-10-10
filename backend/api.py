@@ -29,6 +29,7 @@ from datetime import datetime
 import alerts
 import assistant
 import daily_check
+import dust
 import impact
 import planner
 import reader
@@ -204,6 +205,14 @@ def test_alert(_e, _p, m):
     return daily_check.run_for(m["sid"], os.environ.get("APP_URL"), force=True)
 
 
+def dust_plan(_e, _p, m):
+    return dust.plan(m["sid"])
+
+
+def update_settings(event, _p, m):
+    return dust.update_settings(m["sid"], body_of(event))
+
+
 def system_report(_e, params, m):
     return report.build(m["sid"], params.get("from"), params.get("to"), params.get("lang") or "en")
 
@@ -232,6 +241,8 @@ ROUTES = [
     ("POST", rf"/systems/{SID}/events", add_event),
     ("GET", rf"/systems/{SID}/outlook", outlook),
     ("GET", rf"/systems/{SID}/report", system_report),
+    ("GET", rf"/systems/{SID}/dust", dust_plan),
+    ("POST", rf"/systems/{SID}/settings", update_settings),
     ("POST", rf"/systems/{SID}/alerts", subscribe_alerts),
     ("POST", rf"/systems/{SID}/alerts/test", test_alert),
     ("POST", r"/ask", ask),

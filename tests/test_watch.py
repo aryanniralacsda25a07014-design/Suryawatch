@@ -448,5 +448,71 @@ class ReportTests(WatchApiTests):
         self.assertEqual(self.call("GET", "/systems/abcdef1234/report")[0], 404)
 
 
+class DustTests(WatchApiTests):
+    def setUp(self):
+        super().setUp()
+        import dust
+        self.dust = dust
+
+    def _evening(self, sid, day, frac):
+        hourly = solar.expected_hourly({"lat": 28.7, "lon": 77.1, "kwp": 3}, fake_sun(28.7, 77.1, 20, 180, day, day))
+        full = solar.expected_energy_until(hourly, day)
+        self.call("POST", f"/systems/{sid}/readings", {"readings": [{"time": f"{day}T18:30", "e_today_kwh": round(full * frac, 2)}]})
+        self.call("GET", f"/systems/{sid}/day", params={"date": day})
+
+    def test_fit_shared_slope(self):
+        pts = [{"spell": "a", "x": x, "y": 0.97 - 0.006 * x + (0.004 if x % 2 else -0.004)} for x in range(0, 8)]
+        pts += [{"spell": "b", "x": x, "y": 0.93 - 0.006 * x} for x in range(0, 5)]
+        f = self.dust.fit(pts)
+        self.assertAlmostEqual(-f["slope"], 0.006, delta=0.001)
+        self.assertEqual(f["spells"], 2)
+        self.assertIsNone(self.dust.fit(pts[:3]))                       # too few days
+
+    def test_wash_starts(self):
+        w = self.dust.wash_starts([{"type": "cleaned", "time": "2026-10-02T07:30"}, {"type": "cleaned", "time": "2026-10-05T17:00"},
+                                   {"type": "note", "time": "2026-10-06T09:00"}], {"2026-10-08": 3.0, "2026-10-09": 0.5})
+        self.assertEqual(w, [{"date": "2026-10-02", "kind": "cleaned"}, {"date": "2026-10-06", "kind": "cleaned"},
+                             {"date": "2026-10-09", "kind": "rain"}])
+
+    def test_learns_rate_and_best_day(self):
+        sid = self.make_system()
+        today = date.fromisoformat(watch.today())
+        washed = today - timedelta(days=9)
+        self.call("POST", f"/systems/{sid}/events", {"type": "cleaned", "time": f"{washed.isoformat()}T07:00"})
+        for x in range(0, 9):
+            self._evening(sid, (washed + timedelta(days=x)).isoformat(), 0.97 - 0.006 * x)
+        code, d = self.call("GET", f"/systems/{sid}/dust")
+        self.assertEqual(code, 200, d)
+        self.assertEqual(d["rate_source"], "learned")
+        self.assertAlmostEqual(d["rate"], 0.006, delta=0.0015)
+        self.assertEqual(d["days_since"], 9)
+        self.assertEqual(d["last_wash"], {"date": washed.isoformat(), "kind": "cleaned"})
+        growth = d["rate"] * d["kwh_day"] * d["unit_value"]
+        self.assertEqual(d["best_interval_days"], round(min(30, max(3, (2 * 200 / growth) ** 0.5))))
+        self.assertIn(d["advice"]["code"], ("clean_on", "clean_now"))
+        self.assertEqual(len(d["points"]), 9)
+
+        # rain due soon: wait for it instead
+        weather.rain_forecast = lambda lat, lon, days=5: [{"date": (today + timedelta(days=1)).isoformat(), "rain_mm": 14, "rain_prob_pct": 85}]
+        d = self.call("GET", f"/systems/{sid}/dust")[1]
+        self.assertEqual(d["advice"]["code"], "wait_rain")
+
+        # a dearer cleaning means cleaning less often
+        code, s = self.call("POST", f"/systems/{sid}/settings", {"clean_cost": 800})
+        self.assertEqual((code, s["clean_cost"]), (200, 800))
+        self.assertGreater(self.call("GET", f"/systems/{sid}/dust")[1]["best_interval_days"], d["best_interval_days"])
+        self.assertEqual(self.call("POST", f"/systems/{sid}/settings", {"clean_cost": -5})[0], 400)
+        self.assertEqual(self.call("POST", f"/systems/{sid}/settings", {})[0], 400)
+
+    def test_typical_rate_until_enough_days(self):
+        sid = self.make_system()
+        today = date.fromisoformat(watch.today())
+        self._evening(sid, (today - timedelta(days=1)).isoformat(), 0.9)
+        d = self.call("GET", f"/systems/{sid}/dust")[1]
+        self.assertEqual((d["rate_source"], d["rate"]), ("typical", 0.004))
+        self.assertGreater(d["points_needed"], 0)
+        self.assertEqual(d["advice"]["code"], "unknown_wash")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -411,6 +411,52 @@ window.SW_HI = {
   "(includes made-up sample data)": "(इसमें बनावटी नमूना डेटा शामिल है)",
   "See it live: {link}": "लाइव देखें: {link}",
 
+  // ---------------------------------------------------------------- dust and the best day to clean
+  "Dust and the best day to clean": "धूल और सफ़ाई का सबसे अच्छा दिन",
+  "Clean today or tomorrow morning": "आज या कल सुबह सफ़ाई करें",
+  "Dust now costs more than a cleaning. Clean early in the morning or in the evening with plain water and a soft cloth.":
+    "अब धूल का नुकसान एक सफ़ाई के खर्च से ज़्यादा है। सुबह जल्दी या शाम को सादे पानी और मुलायम कपड़े से साफ़ करें।",
+  "Best day to clean: {date}": "सफ़ाई का सबसे अच्छा दिन: {date}",
+  "Until then, dust costs you less than a cleaning would.": "तब तक धूल का नुकसान एक सफ़ाई के खर्च से कम रहेगा।",
+  "Wait for the rain on {date}": "{date} की बारिश का इंतज़ार करें",
+  "About {mm} mm of rain is forecast. It will wash the panels for free, so save the water and the cost.":
+    "लगभग {mm} मिमी बारिश का अनुमान है। वह पैनलों को मुफ़्त में धो देगी, इसलिए पानी और खर्च बचाएँ।",
+  "No dust build-up seen yet": "अभी धूल जमती नहीं दिखी",
+  "Your panels are keeping their output between washes. Keep adding evening readings.": "धुलाई के बीच भी आपके पैनलों का उत्पादन बना हुआ है। शाम की रीडिंग जोड़ते रहें।",
+  "When were the panels last washed?": "पैनल आखिरी बार कब धुले थे?",
+  "Press \"We cleaned the panels today\" after the next cleaning to start the count. Rain is counted by itself.":
+    "अगली सफ़ाई के बाद \"हमने आज पैनल साफ़ किए\" दबाएँ, ताकि गिनती शुरू हो। बारिश अपने-आप गिनी जाती है।",
+  "learned from {n} days on your roof": "आपकी छत के {n} दिनों से सीखा गया",
+  "rough estimate from {n} days on your roof": "आपकी छत के {n} दिनों से मोटा अनुमान",
+  "typical value, until {n} more evening readings": "आम मान, जब तक {n} और शाम की रीडिंग न हों",
+  "Dust build-up": "धूल जमने की रफ़्तार",
+  "{n}% a day": "{n}% प्रति दिन",
+  "Since the last wash": "पिछली धुलाई से",
+  "{n} days": "{n} दिन",
+  "rain, from {date}": "बारिश, {date} से",
+  "cleaned, from {date}": "सफ़ाई, {date} से",
+  "not known yet": "अभी पता नहीं",
+  "Dust is costing you": "धूल से नुकसान",
+  "{rs} a day": "{rs} प्रति दिन",
+  "about {pct} of output": "उत्पादन का लगभग {pct}",
+  "Clean about every": "लगभग हर इतने दिन सफ़ाई करें",
+  "when one cleaning costs {rs}": "जब एक सफ़ाई का खर्च {rs} हो",
+  "Cost of one cleaning (₹)": "एक सफ़ाई का खर्च (₹)",
+  "Save": "सेव करें",
+  "Saved.": "सेव हो गया।",
+  "A paid cleaner, or your own water and time. SuryaWatch weighs this against what dust costs you.":
+    "सफ़ाई वाले का पैसा, या आपका अपना पानी और समय। SuryaWatch इसकी तुलना धूल से होने वाले नुकसान से करता है।",
+  "Learned from {n} evening readings in {k} clean spell(s). A cleaning, or a day with 2 mm of rain or more, counts as a wash.":
+    "{k} धुलाई-अवधियों की {n} शाम की रीडिंग से सीखा गया। सफ़ाई, या 2 मिमी या उससे ज़्यादा बारिश वाला दिन, धुलाई गिना जाता है।",
+  "Typical rate: 0.4% of output lost a day, measured on an IIT Bombay rooftop in the dry season. SuryaWatch switches to your roof's own rate once it has enough evening readings after a wash.":
+    "आम रफ़्तार: हर दिन उत्पादन का 0.4% नुकसान, जो सूखे मौसम में IIT बॉम्बे की एक छत पर मापा गया। धुलाई के बाद पर्याप्त शाम की रीडिंग मिलते ही SuryaWatch आपकी छत की अपनी रफ़्तार इस्तेमाल करने लगता है।",
+  "Output after haze against days since a wash": "धुलाई के बाद के दिनों के साथ उत्पादन (धुंध के बाद)",
+  "Your roof's dust trend": "आपकी छत पर धूल का रुझान",
+  "Each evening reading": "हर शाम की रीडिंग",
+  "Days since the panels were washed": "पैनल धुलने के बाद के दिन",
+  "{n} days after a wash: {pct} of possible output": "धुलाई के {n} दिन बाद: संभव उत्पादन का {pct}",
+  "Nothing to change.": "बदलने के लिए कुछ नहीं है।",
+
   // ---------------------------------------------------------------- installer report
   "Report for installer": "इंस्टॉलर के लिए रिपोर्ट",
   "‹ Back to dashboard": "‹ डैशबोर्ड पर वापस",

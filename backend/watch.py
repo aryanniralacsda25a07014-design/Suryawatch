@@ -56,6 +56,7 @@ def create_system(req: dict) -> dict:
         "promise_kwh_year": _f(req.get("promise_kwh_year"), "promise_kwh_year", 100, 1_000_000),
         "plan_id": str(req.get("plan_id"))[:20] if req.get("plan_id") else None,
         "promise_source": "plan" if req.get("promise_source") == "plan" else "installer",
+        "clean_cost": _f(req.get("clean_cost"), "clean_cost", 0, 5000),
         "pr_ref": solar.DEFAULT_PR,
         "created": store.now_iso(),
     }

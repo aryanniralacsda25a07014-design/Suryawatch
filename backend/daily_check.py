@@ -11,6 +11,7 @@ import os
 
 import alerts
 import assistant
+import dust
 import store
 import watch
 
@@ -23,6 +24,22 @@ def tomorrow(sid: str) -> dict | None:
     except Exception as exc:
         print(f"outlook failed for {sid}: {exc}")
         return None
+
+
+def cleaning_tip(sid: str) -> str:
+    """One line from the roof's dust plan, e.g. 'Best day to clean: 2026-10-14.'"""
+    try:
+        a = dust.plan(sid)["advice"]
+    except Exception as exc:
+        print(f"dust plan failed for {sid}: {exc}")
+        return ""
+    if a["code"] == "wait_rain":
+        return f"\n\nBest plan: wait for the rain on {a['date']} (about {a['rain_mm']} mm); it will wash the panels for free."
+    if a["code"] == "clean_now":
+        return "\n\nBest plan: clean today or tomorrow morning. Dust now costs more than a cleaning."
+    if a["code"] == "clean_on":
+        return f"\n\nBest day to clean: {a['date']}. Until then dust costs less than a cleaning."
+    return ""
 
 
 def run_for(sid: str, app_url: str | None = None, force: bool = False) -> dict:
@@ -40,6 +57,8 @@ def run_for(sid: str, app_url: str | None = None, force: bool = False) -> dict:
         status = alerts.send(sid, subject, body)
         return {"system": sid, "code": "no_data", "sent": status}
     if v["code"] in ALERT_CODES or force:
+        if v["code"] == "dust":
+            tail = cleaning_tip(sid) + tail
         subject, body = alerts.compose(system, v, app_url, assistant.hindi_line(v), tail)
         return {"system": sid, "code": v["code"], "sent": alerts.send(sid, subject, body)}
     if nxt and nxt["code"] in ("smog_heavy", "rain"):
