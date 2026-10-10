@@ -169,6 +169,7 @@
             <button type="button" id="d-next" class="btn small ghost" aria-label="Next day">›</button>
           </div>
           <div class="dash-actions">
+            <button type="button" id="d-report" class="btn small">Report for installer</button>
             <button type="button" id="d-share" class="btn small ghost">Copy link</button>
             <button type="button" id="d-switch" class="btn small ghost">Other system</button>
           </div>
@@ -234,6 +235,32 @@
         <p>Live totals from every rooftop SuryaWatch watches and every roof it has planned. Names, addresses and locations are never shown.</p>
       </div>
       <div id="impact-body"><p class="hint">Loading...</p></div>
+    </section>
+
+    <!-- =============================================================== INSTALLER REPORT (print / PDF) -->
+    <section id="view-report" hidden>
+      <div class="card rep-controls no-print">
+        <div class="rep-bar">
+          <button type="button" id="rep-back" class="btn small ghost">‹ Back to dashboard</button>
+          <h2>Report for your installer</h2>
+        </div>
+        <p class="hint">Pick a period, check the report, then print it or save it as a PDF. You can also send the link; it opens this same report.</p>
+        <div class="rep-period">
+          <label class="field">Period
+            <select id="rep-preset">
+              <option value="30">Last 30 days</option><option value="7">Last 7 days</option>
+              <option value="month">This month</option><option value="prev">Last month</option><option value="custom">Choose dates</option>
+            </select>
+          </label>
+          <label class="field">From<input type="date" id="rep-from"></label>
+          <label class="field">To<input type="date" id="rep-to"></label>
+        </div>
+        <div class="share-row">
+          <button type="button" id="rep-print" class="btn primary">Print or save as PDF</button>
+          <button type="button" id="rep-share" class="btn ghost wa">Send the link on WhatsApp</button>
+        </div>
+      </div>
+      <article id="report-doc" class="report card" aria-live="polite"></article>
     </section>
   </main>
 

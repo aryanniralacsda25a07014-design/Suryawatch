@@ -274,3 +274,69 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--green
 .impact-foot { align-items: center; flex-wrap: wrap; }
 .demo-toggle { font-size: 15px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px; }
 .demo-toggle input { width: auto; padding: 0; margin: 0; accent-color: var(--green); }
+
+/* ---------------------------------------------------------------- installer report (screen) */
+.rep-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.rep-bar h2 { margin: 0; }
+.rep-period { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 6px 0 4px; }
+@media (max-width: 560px) { .rep-period { grid-template-columns: 1fr 1fr; } .rep-period .field:first-child { grid-column: 1 / -1; } }
+.report { padding: 28px 30px; }
+@media (max-width: 560px) { .report { padding: 18px 14px; } }
+.rep-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; border-bottom: 2px solid var(--ink); padding-bottom: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.rep-brand { font-weight: 700; color: var(--sun); letter-spacing: 0.04em; text-transform: uppercase; font-size: 13px; margin: 0 0 4px; }
+.rep-head h1 { font-size: 28px; }
+.rep-sub { margin: 6px 0 0; color: var(--ink-2); font-size: 17px; }
+.rep-meta { text-align: right; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.rep-sec { margin-bottom: 22px; }
+.rep-sec h2 { font-size: 19px; margin-bottom: 10px; }
+.rep-sec h3 { font-size: 16px; margin-bottom: 8px; }
+.rep-two { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 720px) { .rep-two { grid-template-columns: 1fr; } }
+.rep-kv { width: 100%; border-collapse: collapse; font-size: 15px; }
+.rep-kv th { text-align: left; font-weight: 600; color: var(--muted); padding: 6px 10px 6px 0; white-space: nowrap; vertical-align: top; }
+.rep-kv td { padding: 6px 18px 6px 0; vertical-align: top; }
+@media (max-width: 560px) { .rep-kv tr { display: grid; grid-template-columns: 118px 1fr; } .rep-meta { text-align: left; } }
+.rep-period select, .rep-period input { height: 44px; }
+.rep-stats .value { font-size: 21px; }
+.rep-actions { margin: 0; padding-left: 22px; }
+.rep-actions li { margin-bottom: 8px; line-height: 1.45; }
+.rep-table { width: 100%; border-collapse: collapse; font-size: 14.5px; margin-top: 4px; }
+.rep-table th { text-align: left; font-weight: 600; color: var(--ink-2); border-bottom: 1.5px solid var(--ink-2); padding: 6px 8px 6px 0; }
+.rep-table td { border-bottom: 1px solid var(--line); padding: 6px 8px 6px 0; }
+.rep-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.rep-days { overflow-x: auto; }
+#rep-chart { margin-bottom: 12px; }
+.rep-method ul { margin: 0; padding-left: 20px; color: var(--ink-2); font-size: 14.5px; }
+.rep-method li { margin-bottom: 4px; }
+.rep-foot { border-top: 1px solid var(--line); padding-top: 10px; color: var(--muted); font-size: 13px; word-break: break-all; }
+
+/* ---------------------------------------------------------------- installer report (paper: black and white, A4) */
+@media print {
+  @page { size: A4; margin: 12mm 12mm 14mm; }
+  html, body { background: #fff !important; }
+  body { font-size: 10.5pt; line-height: 1.4; }
+  .top, .foot, .banner, .no-print, .tip, #view-plan, #view-watch, #view-impact { display: none !important; }
+  main { padding: 0 !important; }
+  .wrap { max-width: none; padding: 0; }
+  .report.card { border: 0; padding: 0; margin: 0; border-radius: 0; }
+  .report, .report * { color: #000 !important; box-shadow: none !important; }
+  .rep-head { border-bottom-color: #000; }
+  .rep-head h1 { font-size: 20pt; }
+  .rep-sub { font-size: 12pt; }
+  .rep-meta, .hint { color: #333 !important; }
+  .rep-sec { margin-bottom: 12pt; }
+  .rep-sec h2 { font-size: 13pt; margin-bottom: 5pt; break-after: avoid; }
+  .rep-kv, .rep-stats, .rep-actions, .rep-two, #rep-chart { break-inside: avoid; }
+  .rep-stats { gap: 6pt 12pt; margin-bottom: 6pt; }
+  .rep-stats .value { font-size: 14pt; }
+  .rep-table { font-size: 9.5pt; }
+  .rep-table th { border-bottom: 1pt solid #000; }
+  .rep-table td { border-bottom: 0.5pt solid #999; }
+  .rep-table tr { break-inside: avoid; }
+  .rep-days { overflow: visible; }
+  .report .chart .bar { fill: #777 !important; }
+  .report .chart .ref { stroke: #000 !important; }
+  .report .chart .gridline { stroke: #ddd !important; }
+  .report .chart .axis-text, .report .chart .ref-text { fill: #000 !important; }
+  .rep-foot { border-top: 0.5pt solid #999; }
+}

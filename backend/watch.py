@@ -1,6 +1,8 @@
 """Watch mode service layer: systems, readings, events and the day view."""
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from datetime import datetime, timedelta
 
@@ -247,6 +249,13 @@ def _dry_days(date: str, hourly: list[dict], events: list[dict]) -> int:
     return verdict.days_between(max(candidates), date)
 
 
+def readings_sig(readings: list[dict]) -> str:
+    """A short fingerprint of a day's readings, so a stored verdict can tell when the readings changed."""
+    rows = sorted((r.get("time"), r.get("power_kw"), r.get("e_today_kwh"), r.get("e_total_kwh"), r.get("state"))
+                  for r in readings)
+    return hashlib.sha1(json.dumps(rows, default=str).encode()).hexdigest()[:12]
+
+
 def day_view(sid: str, date: str | None = None, lang: str = "en") -> dict:
     system = get_system(sid)
     date = date or today()
@@ -278,8 +287,9 @@ def day_view(sid: str, date: str | None = None, lang: str = "en") -> dict:
                              days_since_clean_or_rain=_dry_days(date, hourly, events), rain_ahead=rain_ahead, lang=lang)
     if v.get("code") not in ("no_data", "too_early"):
         keep = ("date", "code", "final", "actual_kwh", "expected_kwh", "performance",
-                "performance_after_haze", "haze_loss", "panel_loss", "rupees_lost_per_week", "aod", "pm25")
-        store.put(pk, f"VERDICT#{date}", {k: v.get(k) for k in keep})
+                "performance_after_haze", "haze_loss", "panel_loss", "lost_kwh", "rupees_lost_per_week",
+                "aod", "pm25", "reading_time")
+        store.put(pk, f"VERDICT#{date}", {**{k: v.get(k) for k in keep}, "sig": readings_sig(readings)})
 
     curve = []
     running = 0.0

@@ -393,5 +393,60 @@ class ImpactTests(WatchApiTests):
         self.assertTrue(body["includes_demo"])
 
 
+class ReportTests(WatchApiTests):
+    def _evening(self, sid, day, frac, e_total=None, state=None, view=True):
+        hourly = solar.expected_hourly({"lat": 28.7, "lon": 77.1, "kwp": 3}, fake_sun(28.7, 77.1, 20, 180, day, day))
+        full = solar.expected_energy_until(hourly, day)
+        r = {"time": f"{day}T18:30", "e_today_kwh": round(full * frac, 2)}
+        if e_total is not None:
+            r["e_total_kwh"] = e_total
+        if state:
+            r["state"] = state
+        self.call("POST", f"/systems/{sid}/readings", {"readings": [r]})
+        if view:
+            self.call("GET", f"/systems/{sid}/day", params={"date": day})
+        return r["e_today_kwh"]
+
+    def test_report(self):
+        sid = self.make_system()
+        today = date.fromisoformat(watch.today())
+        days = [(today - timedelta(days=i)).isoformat() for i in (5, 4, 3, 2, 1)]
+        made = self._evening(sid, days[0], 0.95, 5000)
+        made += self._evening(sid, days[1], 0.94, 5013)
+        self._evening(sid, days[2], 0.93, 5026, state="Fault F07")      # a fault day has no performance figures
+        made += self._evening(sid, days[3], 0.94, 5039)
+        made += self._evening(sid, days[4], 0.95, 5052, view=False)       # never viewed: the report checks it
+        self.call("POST", f"/systems/{sid}/events", {"type": "cleaned", "time": f"{days[1]}T07:30"})
+
+        code, r = self.call("GET", f"/systems/{sid}/report", params={"from": days[0], "to": days[-1]})
+        self.assertEqual(code, 200, r)
+        self.assertEqual(len(r["days"]), 5)
+        self.assertEqual(r["summary"]["unchecked_days"], 0)
+        self.assertEqual(r["faults"], [{"time": f"{days[2]}T18:30", "state": "Fault F07"}])
+        self.assertEqual(r["actions"][0]["code"], "fault")
+        self.assertEqual(r["counter"]["units"], 52)
+        self.assertEqual(r["cleanings"], [f"{days[1]}T07:30"])
+        self.assertEqual(r["days"][2]["code"], "fault")
+        self.assertEqual(r["summary"]["full_days"], 4)
+        self.assertAlmostEqual(r["summary"]["made_kwh"], made, delta=0.2)
+        self.assertNotIn("emails", json.dumps(r))
+
+        # a newer reading on an already checked day is picked up
+        self._evening(sid, days[0], 0.60, view=False)
+        r2 = self.call("GET", f"/systems/{sid}/report", params={"from": days[0], "to": days[-1]})[1]
+        self.assertLess(r2["days"][0]["actual_kwh"], r["days"][0]["actual_kwh"])
+
+    def test_report_periods(self):
+        sid = self.make_system()
+        today = date.fromisoformat(watch.today())
+        code, r = self.call("GET", f"/systems/{sid}/report", params={"to": (today + timedelta(days=5)).isoformat()})
+        self.assertEqual((code, r["to"], r["days"]), (200, today.isoformat(), []))
+        self.assertEqual(r["from"], (today - timedelta(days=29)).isoformat())
+        self.assertEqual(self.call("GET", f"/systems/{sid}/report", params={"from": "2026-10-05", "to": "2026-10-01"})[0], 400)
+        self.assertEqual(self.call("GET", f"/systems/{sid}/report", params={"from": "2026-01-01", "to": "2026-10-01"})[0], 400)
+        self.assertEqual(self.call("GET", f"/systems/{sid}/report", params={"from": "5 Oct"})[0], 400)
+        self.assertEqual(self.call("GET", "/systems/abcdef1234/report")[0], 404)
+
+
 if __name__ == "__main__":
     unittest.main()

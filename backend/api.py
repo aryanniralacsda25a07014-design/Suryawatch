@@ -32,6 +32,7 @@ import daily_check
 import impact
 import planner
 import reader
+import report
 import solar
 import store
 import watch
@@ -203,6 +204,10 @@ def test_alert(_e, _p, m):
     return daily_check.run_for(m["sid"], os.environ.get("APP_URL"), force=True)
 
 
+def system_report(_e, params, m):
+    return report.build(m["sid"], params.get("from"), params.get("to"), params.get("lang") or "en")
+
+
 def impact_totals(_e, params, _m):
     return impact.impact(include_demo=str(params.get("demo", "")).lower() in ("1", "true", "yes"))
 
@@ -226,6 +231,7 @@ ROUTES = [
     ("POST", rf"/systems/{SID}/readings/delete", delete_reading),
     ("POST", rf"/systems/{SID}/events", add_event),
     ("GET", rf"/systems/{SID}/outlook", outlook),
+    ("GET", rf"/systems/{SID}/report", system_report),
     ("POST", rf"/systems/{SID}/alerts", subscribe_alerts),
     ("POST", rf"/systems/{SID}/alerts/test", test_alert),
     ("POST", r"/ask", ask),

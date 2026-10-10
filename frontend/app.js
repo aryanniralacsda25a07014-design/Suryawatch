@@ -44,15 +44,14 @@
   }
 
   // ------------------------------------------------------------------ tabs
-  const TABS = ["plan", "watch", "impact"];
-  const tabFromHash = () => (TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "plan");
+  const TABS = ["plan", "watch", "impact"], VIEWS = TABS.concat("report");
+  const tabFromHash = () => (VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "plan");
   function showTab(name) {
-    TABS.forEach((x) => {
-      $("view-" + x).hidden = x !== name;
-      $("tab-" + x).setAttribute("aria-selected", String(x === name));
-    });
+    VIEWS.forEach((x) => { $("view-" + x).hidden = x !== name; });
+    TABS.forEach((x) => $("tab-" + x).setAttribute("aria-selected", String(x === name || (name === "report" && x === "watch"))));
     if (name === "plan" && map) setTimeout(() => map.invalidateSize(), 50);
     if (name === "impact") loadImpact();
+    if (name === "report") { window.scrollTo(0, 0); loadReport(); }
   }
   TABS.forEach((x) => { $("tab-" + x).onclick = () => { location.hash = x; }; });
   window.addEventListener("hashchange", () => showTab(tabFromHash()));
@@ -413,6 +412,7 @@
   const hourLabel = (h) => (h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`);
 
   let sys = null;          // current system meta
+  let sysReady = null;     // the first openSystem() call, so the report view can wait for it
   let viewDate = todayStr();
   let review = [];         // readings waiting to be saved
 
@@ -483,9 +483,11 @@
     await loadDay(viewDate);
   }
 
+  const FACING = { 180: "south", 135: "south-east", 225: "south-west", 90: "east", 270: "west", 0: "north" };
+  const sysName = (s) => (s.name === "Our rooftop" ? t(s.name) : s.name);
   function renderHead() {
-    $("d-name").textContent = sys.name === "Our rooftop" ? t(sys.name) : sys.name;
-    const facing = { 180: "south", 135: "south-east", 225: "south-west", 90: "east", 270: "west", 0: "north" }[Math.round(sys.facing)];
+    $("d-name").textContent = sysName(sys);
+    const facing = FACING[Math.round(sys.facing)];
     $("d-meta").textContent = t("{kw} kW · panels face {facing}, {tilt}° tilt · {lat}, {lon}", {
       kw: sys.kwp, facing: facing ? t(facing) : `${sys.facing}°`, tilt: sys.tilt, lat: sys.lat.toFixed(3), lon: sys.lon.toFixed(3) });
   }
@@ -973,7 +975,7 @@
     if (day && /^\d{4}-\d{2}-\d{2}$/.test(day) && day <= todayStr()) viewDate = day;
     if (fromUrl) safeSet(STORE_KEY, fromUrl);
     const id = fromUrl || safeGet(STORE_KEY);
-    if (id && API) openSystem(id);
+    if (id && API) sysReady = openSystem(id);
     else $("w-setup").hidden = false;
   }
 
@@ -1123,6 +1125,187 @@
     });
   }
 
+  // ------------------------------------------------------------------ installer report (print or save as PDF)
+  let reportData = null;
+  const DATE_OK = (x) => /^\d{4}-\d{2}-\d{2}$/.test(x || "");
+  const ymd = (d) => localStamp(d).slice(0, 10);
+  const longDate = (x) => niceDate(x, { day: "numeric", month: "short", year: "numeric" });
+
+  function presetRange(p) {
+    const now = new Date(todayStr() + "T12:00");
+    if (p === "7" || p === "30") { const f = new Date(now); f.setDate(f.getDate() - (+p - 1)); return [ymd(f), ymd(now)]; }
+    if (p === "month") return [todayStr().slice(0, 8) + "01", todayStr()];
+    if (p === "prev") return [ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1, 12)), ymd(new Date(now.getFullYear(), now.getMonth(), 0, 12))];
+    return [$("rep-from").value, $("rep-to").value];
+  }
+  function initReportPeriod() {
+    const qs = new URLSearchParams(location.search);
+    const [a, b] = DATE_OK(qs.get("from")) && DATE_OK(qs.get("to")) ? [qs.get("from"), qs.get("to")] : presetRange("30");
+    if (qs.get("from")) $("rep-preset").value = "custom";
+    $("rep-from").value = a; $("rep-to").value = b;
+    $("rep-from").max = $("rep-to").max = todayStr();
+  }
+  $("rep-preset").onchange = () => {
+    if ($("rep-preset").value === "custom") return;
+    const [a, b] = presetRange($("rep-preset").value);
+    $("rep-from").value = a; $("rep-to").value = b;
+    loadReport();
+  };
+  $("rep-from").onchange = $("rep-to").onchange = () => { $("rep-preset").value = "custom"; loadReport(); };
+  $("rep-back").onclick = () => { location.hash = "watch"; };
+  $("d-report").onclick = () => { location.hash = "report"; };
+  $("rep-print").onclick = () => window.print();
+  const reportLink = (r) => appLink(`?system=${r.system.system_id}&from=${r.from}&to=${r.to}#report`);
+  $("rep-share").onclick = () => {
+    if (!reportData) return;
+    const r = reportData, m = r.summary;
+    shareWhatsApp([
+      t("SuryaWatch report: {name}, {from} to {to}", { name: sysName(r.system), from: longDate(r.from), to: longDate(r.to) }),
+      m.performance_after_haze != null ? t("Performance after haze: {pct}. Units made: {kwh} kWh.", { pct: pct(m.performance_after_haze), kwh: m.made_kwh }) : "",
+      r.actions.map((a) => "• " + actionText(a)).join("\n"),
+      t("Full report: {link}", { link: reportLink(r) }),
+    ].filter(Boolean).join("\n"));
+  };
+
+  const ACTIONS = {
+    fault: "The inverter showed an error, or output dropped suddenly, on {n} day(s). Please inspect the inverter and the messages listed below.",
+    check: "Output was low on {n} day(s) although the panels had been cleaned or rained on. Please check for new shade, loose DC connectors or a failed string.",
+    behind: "Since tracking began the system has made {pct}% of the promised units ({units} units short). Please explain the gap or inspect the system.",
+    low_after_clean: "Even with cleaning, the panels gave only {pct}% of possible output in this period. Please check the panels and wiring.",
+    dust: "Dust cut output on {n} day(s). Cleaning is the owner's job; no visit is needed for this.",
+    ok: "No problems found. The system made what the sunlight allowed.",
+  };
+  const actionText = (a) => t(ACTIONS[a.code] || a.code, a);
+
+  async function loadReport() {
+    const doc = $("report-doc");
+    if (!sys && sysReady) await sysReady;
+    if (!sys) { doc.innerHTML = `<p class="hint">${t("Open your rooftop on the Watch tab first, then come back to make its report.")}</p>`; return; }
+    const from = $("rep-from").value, to = $("rep-to").value;
+    if (!DATE_OK(from) || !DATE_OK(to)) return;
+    doc.innerHTML = `<p class="hint">${t("Preparing the report...")}</p>`;
+    try {
+      reportData = await api(`/systems/${sys.system_id}/report?from=${from}&to=${to}&lang=${LANG}`);
+      renderReport(reportData);
+    } catch (ex) {
+      doc.innerHTML = `<p class="error">${esc(ex.message)}</p>`;
+    }
+  }
+
+  function renderReport(r) {
+    const s = r.system, m = r.summary, kwh = (x) => (x == null ? "–" : (+x).toFixed(1));
+    const facing = FACING[Math.round(s.facing)];
+    const result = (d) => (d.code ? t((STATUS[d.code] || STATUS.no_data).label) + (d.final === false && d.code !== "fault" ? " " + t("(part day)") : "") : t("Not checked"));
+    const promiseText = s.promise_kwh_year
+      ? t(s.promise_source === "plan" ? "SuryaWatch plan: {n} units a year" : "Installer: {n} units a year", { n: n0(s.promise_kwh_year) })
+      : t("None given (SuryaWatch's estimate is used)");
+    const p = r.promise;
+    const promiseRows = p && p.ready ? [["This month so far", p.month], [p.method === "daily" ? "Days with a final reading" : "Since tracking began", p.all]]
+      .filter(([, q]) => q).map(([label, q]) => `<tr><td>${esc(t(label))} <span class="hint">(${esc(t("{from} to {to}", { from: niceDate(q.first_day || q.from, { day: "numeric", month: "short" }), to: niceDate(q.to, { day: "numeric", month: "short" }) }))})</span></td>
+        <td class="num">${n0(q.promised_kwh)}</td><td class="num">${n0(q.actual_kwh)}</td><td class="num">${q.ratio != null ? Math.round(q.ratio * 100) + "%" : "–"}</td></tr>`).join("") : "";
+    const c = r.counter;
+    const eff = r.cleaning_effect;
+    const effText = eff && eff.ready
+      ? t("Cleaning on {when} changed output from {before} to {after} of possible ({gain}).", { when: longDate(eff.cleaned_at), before: pct(eff.before), after: pct(eff.after), gain: `${eff.gain_pct > 0 ? "+" : ""}${eff.gain_pct}%` })
+      : "";
+
+    $("report-doc").innerHTML = `
+      <header class="rep-head">
+        <div>
+          <p class="rep-brand">SuryaWatch</p>
+          <h1>${t("Rooftop solar report")}</h1>
+          <p class="rep-sub">${esc(sysName(s))} · ${esc(t("{from} to {to}", { from: longDate(r.from), to: longDate(r.to) }))}</p>
+        </div>
+        <div class="rep-meta">${esc(t("Made on {date}", { date: longDate(r.made_on) }))}<br>${esc(t("System ID {id}", { id: s.system_id }))}</div>
+      </header>
+
+      <section class="rep-sec">
+        <h2>${t("The system")}</h2>
+        <table class="rep-kv">
+          <tr><th>${t("Size")}</th><td>${s.kwp} kW</td><th>${t("Panels face")}</th><td>${esc(t("{facing}, {tilt}° tilt", { facing: facing ? t(facing) : `${s.facing}°`, tilt: s.tilt }))}</td></tr>
+          <tr><th>${t("Location")}</th><td>${(+s.lat).toFixed(4)}, ${(+s.lon).toFixed(4)}</td><th>${t("Watched since")}</th><td>${s.created ? longDate(s.created) : "–"}</td></tr>
+          <tr><th>${t("Promise")}</th><td>${esc(promiseText)}</td><th>${t("Value of one unit")}</th><td>₹${s.unit_value}</td></tr>
+        </table>
+      </section>
+
+      <section class="rep-sec">
+        <h2>${t("Summary")}</h2>
+        <div class="stats rep-stats">
+          ${tile("Days with readings", t("{n} ({full} full days)", { n: m.days_with_readings, full: m.full_days }))}
+          ${tile("Units made", `${kwh(m.made_kwh)} kWh`)}
+          ${tile("Sunlight allowed, after haze", `${kwh(m.allowed_after_haze_kwh)} kWh`)}
+          ${tile("Performance after haze", pct(m.performance_after_haze))}
+          ${tile("Lost to dust or faults", `${kwh(m.lost_kwh)} kWh · ${inr(m.lost_rupees)}`)}
+          ${tile("Lost to smog and haze", `${kwh(m.haze_kwh)} kWh`)}
+        </div>
+        <p class="hint">${t("A healthy system gives {pct} or more of the output the sunlight allows, after haze.", { pct: pct(r.healthy_at) })}
+          ${m.unchecked_days ? esc(t("{n} day(s) could not be checked because a weather service did not answer. Open the report again later.", { n: m.unchecked_days })) : ""}</p>
+      </section>
+
+      <section class="rep-sec">
+        <h2>${t("What needs attention")}</h2>
+        ${r.actions.length ? `<ol class="rep-actions">${r.actions.map((a) => `<li>${esc(actionText(a))}</li>`).join("")}</ol>` : `<p class="hint">${t("No full days in this period yet.")}</p>`}
+      </section>
+
+      <section class="rep-sec rep-two">
+        <div>
+          <h3>${t("Promised vs got")}</h3>
+          ${promiseRows ? `<table class="rep-table"><thead><tr><th>${t("Period")}</th><th class="num">${t("Promised")}</th><th class="num">${t("Got")}</th><th class="num">${t("Share")}</th></tr></thead><tbody>${promiseRows}</tbody></table>
+            <p class="hint">${t("Units are kWh.")}</p>` : `<p class="hint">${t("Not enough readings yet. Photos of the Total (E-Total) screen taken a day or more apart are needed.")}</p>`}
+        </div>
+        <div>
+          <h3>${t("Inverter Total counter")}</h3>
+          ${c ? `<p>${esc(t("{a} kWh on {d1} to {b} kWh on {d2}: {units} kWh in between.", { a: n0(c.from_kwh), d1: `${niceDate(c.from_time, { day: "numeric", month: "short" })}, ${clock(c.from_time)}`, b: n0(c.to_kwh), d2: `${niceDate(c.to_time, { day: "numeric", month: "short" })}, ${clock(c.to_time)}`, units: c.units }))}</p>`
+            : `<p class="hint">${t("Needs two photos of the Total (E-Total) screen in this period.")}</p>`}
+        </div>
+      </section>
+
+      <section class="rep-sec">
+        <h2>${t("Inverter faults and messages")}</h2>
+        ${r.faults.length ? `<table class="rep-table"><thead><tr><th>${t("When")}</th><th>${t("The display showed")}</th></tr></thead><tbody>
+          ${r.faults.map((f) => `<tr><td>${esc(niceDate(f.time, { weekday: "short", day: "numeric", month: "short" }))}, ${clock(f.time)}</td><td><b>${esc(f.state)}</b></td></tr>`).join("")}</tbody></table>`
+          : `<p class="hint">${t("No fault messages on the photos in this period.")}</p>`}
+      </section>
+
+      <section class="rep-sec">
+        <h2>${t("Cleanings")}</h2>
+        ${r.cleanings.length ? `<p>${esc(r.cleanings.map((x) => `${longDate(x)}, ${clock(x)}`).join(" · "))}</p>` : `<p class="hint">${t("No cleanings logged in this period.")}</p>`}
+        ${effText ? `<p>${esc(effText)}</p>` : ""}
+      </section>
+
+      <section class="rep-sec rep-days">
+        <h2>${t("Day by day")}</h2>
+        <div id="rep-chart"></div>
+        ${r.days.length ? `<table class="rep-table"><thead><tr><th>${t("Date")}</th><th class="num">${t("Made (kWh)")}</th><th class="num">${t("Sunlight allowed (kWh)")}</th>
+          <th class="num">${t("Haze")}</th><th class="num">${t("Performance after haze")}</th><th>${t("Result")}</th></tr></thead><tbody>
+          ${r.days.map((d) => `<tr><td>${esc(niceDate(d.date, { weekday: "short", day: "numeric", month: "short" }))}</td><td class="num">${kwh(d.actual_kwh)}</td>
+            <td class="num">${kwh(d.expected_kwh)}</td><td class="num">${pct(d.haze_loss)}</td><td class="num">${pct(d.performance_after_haze)}</td><td>${esc(result(d))}</td></tr>`).join("")}
+          </tbody></table>` : `<p class="hint">${t("No readings in this period.")}</p>`}
+      </section>
+
+      <section class="rep-sec rep-method">
+        <h2>${t("How this report was made")}</h2>
+        <ul>
+          <li>${t("Readings come from photos of the inverter display, read by AI and checked by the owner, or typed in.")}</li>
+          <li>${t("Expected output uses the sun's position over this roof, measured sunlight from Open-Meteo, and the system's size, tilt and direction.")}</li>
+          <li>${t("Haze comes from the air-quality data (aerosol optical depth). Output lost to haze is not counted against the panels.")}</li>
+          <li>${t("Each day is judged on its evening E-Today reading; a part day had no evening reading.")}</li>
+          <li>${t("These are estimates to guide a check-up. A site visit is the final word.")}</li>
+        </ul>
+      </section>
+      <footer class="rep-foot">${esc(t("Made with SuryaWatch. Open this report online: {link}", { link: reportLink(r) }))}</footer>`;
+
+    const full = r.days.filter((d) => d.final && d.performance_after_haze != null);
+    if (full.length) {
+      barChart($("rep-chart"), full.map((d) => ({ label: niceDate(d.date, { day: "numeric", month: "short" }), value: Math.round(d.performance_after_haze * 100), d })), {
+        title: t("Share of possible output each full day, after haze (%)"),
+        ref: Math.round(r.healthy_at * 100), refLabel: t("Healthy: {pct}", { pct: pct(r.healthy_at) }),
+        fmtTick: (v) => `${v}%`, labelEvery: Math.max(1, Math.ceil(full.length / 10)),
+        tip: (x) => `<b>${esc(x.label)}</b><br>${x.value}% · ${esc(result(x.d))}`,
+      });
+    }
+  }
+
   // ------------------------------------------------------------------ English | हिंदी switch
   const ORIG_TEXT = new WeakMap(), ORIG_ATTR = new WeakMap(), ATTRS = ["placeholder", "aria-label", "title"];
   const REV = Object.fromEntries(Object.entries(HI).filter(([k]) => !k.includes("{")).map(([k, v]) => [v, k]));
@@ -1166,12 +1349,14 @@
     if (lastPlanBody) runPlan(lastPlanBody).catch(() => { /* keep the old result */ });
     if (sys && !$("w-dash").hidden) { renderHead(); loadOutlook(); loadDay(viewDate); }
     if (impactData) renderImpact(impactData);
+    if (reportData && !$("view-report").hidden) renderReport(reportData);
     renderReview();
   }
   $("lang-btn").onclick = () => setLang(LANG === "hi" ? "en" : "hi");
 
   // ------------------------------------------------------------------ boot
   applyStatic();
+  initReportPeriod();
   initMap();
   initWatch();
   showTab(tabFromHash());
