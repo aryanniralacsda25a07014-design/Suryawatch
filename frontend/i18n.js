@@ -457,6 +457,27 @@ window.SW_HI = {
   "{n} days after a wash: {pct} of possible output": "धुलाई के {n} दिन बाद: संभव उत्पादन का {pct}",
   "Nothing to change.": "बदलने के लिए कुछ नहीं है।",
 
+  // ---------------------------------------------------------------- neighbourhood check
+  "Neighbourhood check": "पड़ोस से तुलना",
+  "Area-wide dip": "पूरे इलाके में गिरावट",
+  "days when every roof nearby dipped together, so nobody blamed their own panels": "दिन जब आस-पास की सभी छतों पर एक साथ गिरावट आई, इसलिए किसी ने अपने पैनलों को दोष नहीं दिया",
+  "day when every roof nearby dipped together, so nobody blamed their own panels": "दिन जब आस-पास की सभी छतों पर एक साथ गिरावट आई, इसलिए किसी ने अपने पैनलों को दोष नहीं दिया",
+  "Rooftops nearby were low too ({n} roofs within {km} km, middle value {median}). This dip is probably the sky (smog, dust or cloud), not your panels.":
+    "आस-पास की छतों पर भी उत्पादन कम रहा ({km} किमी के अंदर {n} छतें, बीच का मान {median})। यह गिरावट शायद आसमान की वजह से है (स्मॉग, धूल या बादल), आपके पैनलों की वजह से नहीं।",
+  "Rooftops nearby did fine ({n} roofs within {km} km, middle value {median}) but yours did not. That points to your own panels: dust, new shade or a fault.":
+    "आस-पास की छतें ठीक रहीं ({km} किमी के अंदर {n} छतें, बीच का मान {median}), पर आपकी नहीं। इसका मतलब समस्या आपके अपने पैनलों में है: धूल, नई छाया या कोई खराबी।",
+  "Your roof did better than its neighbours ({n} roofs within {km} km, middle value {median}).": "आपकी छत ने पड़ोसियों से बेहतर किया ({km} किमी के अंदर {n} छतें, बीच का मान {median})।",
+  "Your roof did about as well as its neighbours ({n} roofs within {km} km, middle value {median}).": "आपकी छत ने लगभग पड़ोसियों जितना ही किया ({km} किमी के अंदर {n} छतें, बीच का मान {median})।",
+  "Rooftops nearby were low on this day ({n} roofs within {km} km, middle value {median}).": "इस दिन आस-पास की छतों पर उत्पादन कम रहा ({km} किमी के अंदर {n} छतें, बीच का मान {median})।",
+  "Rooftops nearby did well on this day ({n} roofs within {km} km, middle value {median}).": "इस दिन आस-पास की छतें अच्छी चलीं ({km} किमी के अंदर {n} छतें, बीच का मान {median})।",
+  "{n} SuryaWatch rooftop(s) within {km} km, but not enough evening readings from them for this day yet.":
+    "{km} किमी के अंदर {n} SuryaWatch छतें हैं, पर इस दिन के लिए उनकी पर्याप्त शाम की रीडिंग अभी नहीं हैं।",
+  "No other SuryaWatch rooftops within {km} km yet. Invite your neighbours so you can compare.": "{km} किमी के अंदर अभी कोई और SuryaWatch छत नहीं है। तुलना के लिए अपने पड़ोसियों को बुलाएँ।",
+  "Invite neighbours on WhatsApp": "पड़ोसियों को WhatsApp पर बुलाएँ",
+  "Only a count and a middle value are shared, never names, places or one roof's figure.": "सिर्फ़ गिनती और बीच का मान दिखाया जाता है; कभी नाम, जगह या किसी एक छत का आँकड़ा नहीं।",
+  "I check my rooftop solar with SuryaWatch. It tells me whether a low day is smog, dust or a fault. Add your roof so we can compare our neighbourhood: {link}":
+    "मैं अपना रूफ़टॉप सोलर SuryaWatch से जाँचता हूँ। यह बताता है कि कम बिजली स्मॉग से है, धूल से है या किसी खराबी से। अपनी छत जोड़ें ताकि हम अपने मोहल्ले की तुलना कर सकें: {link}",
+
   // ---------------------------------------------------------------- installer report
   "Report for installer": "इंस्टॉलर के लिए रिपोर्ट",
   "‹ Back to dashboard": "‹ डैशबोर्ड पर वापस",
@@ -510,7 +531,7 @@ window.SW_HI = {
   "Sunlight allowed, after haze": "धुंध के बाद धूप से संभव",
   "Performance after haze": "धुंध के बाद प्रदर्शन",
   "Lost to dust or faults": "धूल या खराबी से नुकसान",
-  "Lost to smog and haze": "स्मॉग और धुंध से नुकसान",
+  "Lost to the sky (smog, haze, area-wide dips)": "आसमान की वजह से नुकसान (स्मॉग, धुंध, पूरे इलाके की गिरावट)",
   "A healthy system gives {pct} or more of the output the sunlight allows, after haze.": "ठीक चलता सिस्टम, धुंध का असर हटाकर, धूप से संभव उत्पादन का {pct} या उससे ज़्यादा देता है।",
   "{n} day(s) could not be checked because a weather service did not answer. Open the report again later.":
     "मौसम सेवा से जवाब न मिलने के कारण {n} दिन जाँचे नहीं जा सके। थोड़ी देर बाद रिपोर्ट फिर खोलें।",

@@ -35,7 +35,7 @@ DEFAULT_CLEAN_COST = 200.0    # rupees per cleaning, an assumption the owner can
 RAIN_WASH_MM = watch.RAIN_DAY_MM
 RAIN_WAIT_MM, RAIN_WAIT_PROB = 5.0, 60
 HISTORY_DAYS = 90
-SKIP_CODES = {"fault", "check"}   # those days are low for reasons other than dust
+SKIP_CODES = {"fault", "check", "area"}   # those days are low for reasons other than dust
 
 
 def _clean(rows):

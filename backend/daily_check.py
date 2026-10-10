@@ -26,6 +26,21 @@ def tomorrow(sid: str) -> dict | None:
         return None
 
 
+def neighbour_note(nb: dict) -> str:
+    """One line comparing the roof with SuryaWatch rooftops nearby (counts and a median only)."""
+    if not nb or nb.get("code") in (None, "too_few"):
+        return ""
+    head = f"\n\nNearby: {nb['reporting']} SuryaWatch rooftops within {nb['radius_km']:g} km gave a median of {round(nb['median'] * 100)}% today. "
+    return head + {
+        "area_wide": "They were low too, so today's dip is probably the sky (smog, dust or cloud), not your panels.",
+        "only_you": "They did fine but yours did not, which points to your own panels: dust, new shade or a fault.",
+        "you_ok_area_low": "Your roof did better than its neighbours.",
+        "all_ok": "Your roof did about as well as its neighbours.",
+        "area_low": "Rooftops nearby were low today.",
+        "area_ok": "Rooftops nearby did well today.",
+    }.get(nb["code"], "")
+
+
 def cleaning_tip(sid: str) -> str:
     """One line from the roof's dust plan, e.g. 'Best day to clean: 2026-10-14.'"""
     try:
@@ -45,8 +60,12 @@ def cleaning_tip(sid: str) -> str:
 def run_for(sid: str, app_url: str | None = None, force: bool = False) -> dict:
     day = watch.day_view(sid)
     v, system = day["verdict"], day["system"]
+    nb = day.get("neighbours") or {}
     nxt = tomorrow(sid)
     tail = f"\n\nTomorrow: {nxt['title']}. {nxt['message']}" if nxt else ""
+    note = neighbour_note(nb)
+    if note:
+        tail = note + tail
     if v["code"] == "no_data":
         subject = f"SuryaWatch: add tonight's reading ({system['name']})"
         body = ("No inverter reading was added today. Photograph the display after sunset (the E-Today or Day "
@@ -56,7 +75,7 @@ def run_for(sid: str, app_url: str | None = None, force: bool = False) -> dict:
             body += f"\n\nOpen your dashboard: {app_url}?system={sid}#watch"
         status = alerts.send(sid, subject, body)
         return {"system": sid, "code": "no_data", "sent": status}
-    if v["code"] in ALERT_CODES or force:
+    if v["code"] in ALERT_CODES or force:          # an area-wide dip ("area") is the sky, so no alert
         if v["code"] == "dust":
             tail = cleaning_tip(sid) + tail
         subject, body = alerts.compose(system, v, app_url, assistant.hindi_line(v), tail)
@@ -74,15 +93,18 @@ def run_for(sid: str, app_url: str | None = None, force: bool = False) -> dict:
 def handler(event=None, _context=None):
     app_url = os.environ.get("APP_URL")
     results = []
-    for meta in store.scan_prefix("SYSTEM#", "META"):
-        sid = meta["pk"].split("#", 1)[1]
+    sids = [m["pk"].split("#", 1)[1] for m in store.scan_prefix("SYSTEM#", "META")]
+    # pass 1: save today's verdict for every roof with a reading, so history, the impact page and the
+    # neighbourhood comparison in pass 2 all see every roof
+    for sid in sids:
+        if store.query(f"SYSTEM#{sid}", f"READING#{watch.today()}"):
+            try:
+                watch.day_view(sid)
+            except Exception as exc:
+                print(f"day check failed for {sid}: {exc}")
+    # pass 2: email the owners who asked for alerts
+    for sid in sids:
         if not alerts.subscribed(sid):
-            # no email, but still save the day's verdict so history and the public impact page count it
-            if store.query(f"SYSTEM#{sid}", f"READING#{watch.today()}"):
-                try:
-                    watch.day_view(sid)
-                except Exception as exc:
-                    print(f"day check failed for {sid}: {exc}")
             continue
         try:
             results.append(run_for(sid, app_url))

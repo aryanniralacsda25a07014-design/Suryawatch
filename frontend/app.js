@@ -424,6 +424,7 @@
     check: { label: "Check system", cls: "warn", icon: "M12 4v9M12 17v.5" },
     no_data: { label: "No reading yet", cls: "none", icon: "M5 12h14" },
     too_early: { label: "Too early", cls: "none", icon: "M12 6v6l4 2" },
+    area: { label: "Area-wide dip", cls: "warn", icon: "M3 20v-8l4-3 4 3v8M13 20v-6l4-3 4 3v6M2 20h20" },
   };
 
   // ---- setup
@@ -519,8 +520,8 @@
         <div class="stat"><div class="label">${t("Sunlight allowed")}</div><div class="value num">${v.expected_kwh} kWh</div></div>
         <div class="stat"><div class="label">${t("Performance")}</div><div class="value num">${pct(v.performance)}</div></div>
         <div class="stat"><div class="label">${t("Haze cut sunlight")}</div><div class="value num">${pct(v.haze_loss)}</div></div>
-        <div class="stat"><div class="label">${t("Panel loss")}</div><div class="value num">${pct(v.panel_loss)}</div></div>
-        <div class="stat"><div class="label">${t("Lost per week")}</div><div class="value num">${inr(v.rupees_lost_per_week || 0)}</div></div>
+        <div class="stat"><div class="label">${t("Panel loss")}</div><div class="value num">${v.code === "area" ? "–" : pct(v.panel_loss)}</div></div>
+        <div class="stat"><div class="label">${t("Lost per week")}</div><div class="value num">${v.code === "area" ? "–" : inr(v.rupees_lost_per_week || 0)}</div></div>
       </div>`;
     }
     const total = d.curve.length ? d.curve[d.curve.length - 1].expected_cum_kwh : null;
@@ -534,8 +535,10 @@
       <p>${esc(v.message)}</p>
       ${stats}
       <p class="hint">${esc(should[0])}<b>${total != null ? total.toFixed(1) : "–"}</b>${esc(should[1] || "")}${esc(sky)} ${esc(air)}</p>
+      ${neighbourBlock(d.neighbours)}
       <div class="share-row"><button type="button" id="v-share" class="btn small ghost wa">${t("Share on WhatsApp")}</button></div>
       <div id="watch-ask"></div>`;
+    if ($("nb-invite")) $("nb-invite").onclick = () => shareWhatsApp(t("I check my rooftop solar with SuryaWatch. It tells me whether a low day is smog, dust or a fault. Add your roof so we can compare our neighbourhood: {link}", { link: appLink("#watch") }));
     $("v-share").onclick = () => {
       const nice = niceDate(d.date, { weekday: "short", day: "numeric", month: "short" });
       const lines = [`SuryaWatch: ${sys.name}, ${nice}`, v.title, v.message];
@@ -546,6 +549,35 @@
     helperBox($("watch-ask"), "watch", () => ({ date: d.date, system_kw: sys.kwp, result: v.title, explanation: v.message,
       made_kwh: v.actual_kwh, sunlight_allowed_kwh: v.expected_kwh, haze_loss: v.haze_loss, panel_loss: v.panel_loss,
       rupees_lost_per_week: v.rupees_lost_per_week, pm25: v.pm25, aerosol_optical_depth: v.aod }));
+  }
+
+  // ---- neighbourhood check: a count and a middle value from rooftops nearby, never one roof's figure
+  const NB_TEXT = {
+    area_wide: "Rooftops nearby were low too ({n} roofs within {km} km, middle value {median}). This dip is probably the sky (smog, dust or cloud), not your panels.",
+    only_you: "Rooftops nearby did fine ({n} roofs within {km} km, middle value {median}) but yours did not. That points to your own panels: dust, new shade or a fault.",
+    you_ok_area_low: "Your roof did better than its neighbours ({n} roofs within {km} km, middle value {median}).",
+    all_ok: "Your roof did about as well as its neighbours ({n} roofs within {km} km, middle value {median}).",
+    area_low: "Rooftops nearby were low on this day ({n} roofs within {km} km, middle value {median}).",
+    area_ok: "Rooftops nearby did well on this day ({n} roofs within {km} km, middle value {median}).",
+  };
+  const HOUSES = "M3 20v-8l4-3 4 3v8M13 20v-6l4-3 4 3v6M2 20h20";
+  function neighbourBlock(nb) {
+    if (!nb) return "";
+    const km = nb.radius_km;
+    let text;
+    if (nb.code === "too_few") {
+      text = nb.nearby
+        ? t("{n} SuryaWatch rooftop(s) within {km} km, but not enough evening readings from them for this day yet.", { n: nb.nearby, km })
+        : t("No other SuryaWatch rooftops within {km} km yet. Invite your neighbours so you can compare.", { km });
+    } else {
+      text = t(NB_TEXT[nb.code] || NB_TEXT.all_ok, { n: nb.reporting, km, median: pct(nb.median) });
+    }
+    const cls = nb.code === "area_wide" ? " area" : nb.code === "only_you" ? " you" : "";
+    return `<div class="nb-box${cls}">
+      <div class="nb-head"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${HOUSES}"/></svg>${t("Neighbourhood check")}</div>
+      <p>${esc(text)}</p>
+      ${nb.code === "too_few" ? `<button type="button" id="nb-invite" class="btn small ghost wa">${t("Invite neighbours on WhatsApp")}</button>` : ""}
+      <p class="nb-privacy">${t("Only a count and a middle value are shared, never names, places or one roof's figure.")}</p></div>`;
   }
 
   // two-series chart: expected line (with wash) + measured dots, one y-axis
@@ -1145,6 +1177,8 @@
             ${finding("smog", w.smog_days, ["days when low output was smog, not dirty panels, so nobody washed them for nothing",
                                              "day when low output was smog, not dirty panels, so nobody washed them for nothing"])}
             ${finding("dust", w.dust_days, ["days the panels needed cleaning", "day the panels needed cleaning"])}
+            ${w.area_days ? finding("area", w.area_days, ["days when every roof nearby dipped together, so nobody blamed their own panels",
+                                                        "day when every roof nearby dipped together, so nobody blamed their own panels"]) : ""}
             ${finding("fault", w.fault_days, ["days with a sudden drop or an inverter error", "day with a sudden drop or an inverter error"])}
             ${finding("healthy", w.healthy_days, ["days the panels made what the sunlight allowed", "day the panels made what the sunlight allowed"])}
           </ul>
@@ -1346,7 +1380,7 @@
           ${tile("Sunlight allowed, after haze", `${kwh(m.allowed_after_haze_kwh)} kWh`)}
           ${tile("Performance after haze", pct(m.performance_after_haze))}
           ${tile("Lost to dust or faults", `${kwh(m.lost_kwh)} kWh · ${inr(m.lost_rupees)}`)}
-          ${tile("Lost to smog and haze", `${kwh(m.haze_kwh)} kWh`)}
+          ${tile("Lost to the sky (smog, haze, area-wide dips)", `${kwh(m.haze_kwh)} kWh`)}
         </div>
         <p class="hint">${t("A healthy system gives {pct} or more of the output the sunlight allows, after haze.", { pct: pct(r.healthy_at) })}
           ${m.unchecked_days ? esc(t("{n} day(s) could not be checked because a weather service did not answer. Open the report again later.", { n: m.unchecked_days })) : ""}</p>

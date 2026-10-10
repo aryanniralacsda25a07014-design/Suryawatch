@@ -46,6 +46,8 @@ class WatchApiTests(unittest.TestCase):
         self._ghi = planner.monthly_ghi
         planner.monthly_ghi = lambda lat, lon: (list(weather.DELHI_FALLBACK_GHI), "test")
         os.environ["SURYAWATCH_MOCK_AI"] = "1"
+        import neighbours
+        neighbours.forget()
 
     def tearDown(self):
         weather.sunlight_hourly, weather.air_quality_hourly, weather.rain_forecast = self._orig
@@ -512,6 +514,75 @@ class DustTests(WatchApiTests):
         self.assertEqual((d["rate_source"], d["rate"]), ("typical", 0.004))
         self.assertGreater(d["points_needed"], 0)
         self.assertEqual(d["advice"]["code"], "unknown_wash")
+
+
+class NeighbourTests(WatchApiTests):
+    def setUp(self):
+        super().setUp()
+        import neighbours
+        self.nb = neighbours
+
+    def _roof(self, lat, lon, name="Roof", demo=False):
+        return self.call("POST", "/systems", {"name": name, "lat": lat, "lon": lon, "kwp": 3, "demo": demo})[1]["system_id"]
+
+    def _verdict(self, sid, day, perf, final=True, code="healthy"):
+        store.put(f"SYSTEM#{sid}", f"VERDICT#{day}", {"date": day, "code": code, "final": final, "performance_after_haze": perf})
+
+    def test_distance(self):
+        self.assertAlmostEqual(self.nb.distance_km(28.6315, 77.2167, 28.6129, 77.2295), 2.4, delta=0.2)   # CP to India Gate
+
+    def test_codes_and_privacy(self):
+        me = self._roof(28.70, 77.10)
+        near = [self._roof(28.70 + d, 77.10 + d) for d in (0.005, 0.01, -0.008)]
+        far = self._roof(29.10, 77.10)                          # about 44 km away
+        demo = self._roof(28.701, 77.101, "Sample rooftop (demo data)", demo=True)
+        day = "2026-10-05"
+        for s, p in zip(near, (0.70, 0.75, 0.72)):
+            self._verdict(s, day, p)
+        self._verdict(far, day, 0.95)
+        self._verdict(demo, day, 0.95)
+        meta = watch.get_system(me)
+        r = self.nb.check(me, meta, day, {"final": True, "performance_after_haze": 0.68})
+        self.assertEqual((r["code"], r["nearby"], r["reporting"], r["median"]), ("area_wide", 3, 3, 0.72))
+        for s in near + [far, demo]:
+            self.assertNotIn(s, json.dumps(r))
+        for s, p in zip(near, (0.95, 0.94, 0.96)):
+            self._verdict(s, day, p)
+        self.assertEqual(self.nb.check(me, meta, day, {"final": True, "performance_after_haze": 0.70})["code"], "only_you")
+        self.assertEqual(self.nb.check(me, meta, day, {"final": True, "performance_after_haze": 0.93})["code"], "all_ok")
+        self.assertEqual(self.nb.check(me, meta, day, None)["code"], "area_ok")
+        self.assertEqual(self.nb.check(me, meta, "2026-10-06", None)["code"], "too_few")
+        # demo roofs are compared only with demo roofs
+        self.assertEqual(self.nb.nearby(demo, watch.get_system(demo)), [])
+
+    def test_area_wide_dip_sends_no_cleaning_alert(self):
+        import daily_check
+        me = self._roof(28.70, 77.10)
+        near = [self._roof(28.70 + d, 77.10) for d in (0.004, 0.008, 0.012)]
+        today = watch.today()
+        hourly = solar.expected_hourly({"lat": 28.7, "lon": 77.1, "kwp": 3}, fake_sun(28.7, 77.1, 20, 180, today, today))
+        full = solar.expected_energy_until(hourly, today)
+        self.call("POST", f"/systems/{me}/readings", {"readings": [{"time": f"{today}T18:30", "e_today_kwh": round(full * 0.74, 2)}]})
+        self.call("POST", f"/systems/{me}/alerts", {"email": "owner@example.com"})
+        log = os.path.join(self.tmp.name, "outbox", "alerts.log")
+
+        for s in near:
+            self._verdict(s, today, 0.73)
+        daily_check.handler()
+        day = self.call("GET", f"/systems/{me}/day", params={"date": today})[1]
+        self.assertEqual((day["neighbours"]["code"], day["verdict"]["code"]), ("area_wide", "area"))
+        self.assertIn("3 roofs", day["verdict"]["message"])
+        hi = self.call("GET", f"/systems/{me}/day", params={"date": today, "lang": "hi"})[1]["verdict"]
+        self.assertIn("पूरे इलाके", hi["title"])
+        sent = open(log, encoding="utf-8").read() if os.path.exists(log) else ""
+        self.assertNotIn("Dust on panels", sent)
+
+        for s in near:
+            self._verdict(s, today, 0.95)
+        daily_check.handler()
+        sent = open(log, encoding="utf-8").read()
+        self.assertIn("Dust on panels", sent)
+        self.assertIn("points to your own panels", sent)
 
 
 if __name__ == "__main__":

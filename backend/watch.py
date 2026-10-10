@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 import calendar
 
+import neighbours
 import planner
 from i18n import tr
 import solar
@@ -64,6 +65,7 @@ def create_system(req: dict) -> dict:
         meta["demo"] = True          # made-up sample data: kept out of the public impact totals
     sid = store.new_id()
     store.put(f"SYSTEM#{sid}", "META", meta)
+    neighbours.forget()
     return {"system_id": sid, **meta}
 
 
@@ -286,11 +288,23 @@ def day_view(sid: str, date: str | None = None, lang: str = "en") -> dict:
     previous = [v for v in store.query(pk, "VERDICT#") if v.get("date", "") < date and v.get("final")]
     v = verdict.diagnose_day(system, date, readings, hourly, air, previous=previous,
                              days_since_clean_or_rain=_dry_days(date, hourly, events), rain_ahead=rain_ahead, lang=lang)
+    try:
+        nearby = neighbours.check(sid, system, date, v)
+    except Exception as exc:          # the comparison is a bonus; never break the day view over it
+        print(f"neighbourhood check failed: {exc}")
+        nearby = None
+    if nearby and nearby.get("code") == "area_wide" and v.get("code") in ("dust", "check"):
+        # most roofs nearby dipped too: the sky cut the output, not dirt or a fault on this roof
+        msg = tr(lang, "area.msg", n=nearby["reporting"], km=f"{nearby['radius_km']:g}", median=f"{nearby['median'] * 100:.0f}")
+        if not v.get("final") and v.get("reading_time"):
+            msg += tr(lang, "partial", time=solar.parse_local(v["reading_time"]).strftime("%I:%M %p").lstrip("0"))
+        v = {**v, "code": "area", "title": tr(lang, "area.title"), "message": msg}
     if v.get("code") not in ("no_data", "too_early"):
         keep = ("date", "code", "final", "actual_kwh", "expected_kwh", "performance",
                 "performance_after_haze", "haze_loss", "panel_loss", "lost_kwh", "rupees_lost_per_week",
                 "aod", "pm25", "reading_time")
         store.put(pk, f"VERDICT#{date}", {**{k: v.get(k) for k in keep}, "sig": readings_sig(readings)})
+
 
     curve = []
     running = 0.0
@@ -305,6 +319,7 @@ def day_view(sid: str, date: str | None = None, lang: str = "en") -> dict:
         "date": date,
         "is_today": date == today(),
         "verdict": v,
+        "neighbours": nearby,
         "curve": curve,
         "readings": readings,
         "instant": verdict.instant_check(hourly, readings),

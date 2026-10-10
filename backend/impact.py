@@ -142,6 +142,7 @@ def impact(include_demo: bool = False) -> dict:
             "dust_days": codes.count("dust"),
             "fault_days": codes.count("fault"),
             "check_days": codes.count("check"),
+            "area_days": codes.count("area"),
             "cleanings": sum(s["cleanings"] for s in stats),
             "recovered_kwh_day": round(sum(s["recovered_kwh_day"] for s in stats), 2),
             "with_alerts": sum(1 for s in stats if s["has_alerts"]),

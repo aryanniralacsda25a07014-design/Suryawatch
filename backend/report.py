@@ -69,10 +69,11 @@ def build(sid: str, start: str | None = None, end: str | None = None, lang: str 
     made = sum(float(r["actual_kwh"]) for r in full)
     allowed = sum(float(r["expected_kwh"]) for r in full)
     after_haze = sum(float(r["expected_kwh"]) * (1 - float(r.get("haze_loss") or 0)) for r in full)
-    lost = sum(max(0.0, float(r["expected_kwh"]) * (1 - float(r.get("haze_loss") or 0)) - float(r["actual_kwh"]))
-               for r in full)
+    shortfall = lambda r: max(0.0, float(r["expected_kwh"]) * (1 - float(r.get("haze_loss") or 0)) - float(r["actual_kwh"]))
+    lost = sum(shortfall(r) for r in full if r.get("code") != "area")       # dust, shade or faults on this roof
+    area_kwh = sum(shortfall(r) for r in full if r.get("code") == "area")   # days every roof nearby dipped
     codes = [r.get("code") for r in rows if r.get("code")]
-    counts = {c: codes.count(c) for c in ("healthy", "smog", "dust", "check", "fault")}
+    counts = {c: codes.count(c) for c in ("healthy", "smog", "dust", "check", "fault", "area")}
 
     faults = []
     for d in sorted({r["time"][:10] for r in in_range}):
@@ -123,7 +124,7 @@ def build(sid: str, start: str | None = None, end: str | None = None, lang: str 
             "days_with_readings": len(rows), "full_days": len(full), "unchecked_days": unchecked,
             "made_kwh": round(made, 1), "allowed_kwh": round(allowed, 1), "allowed_after_haze_kwh": round(after_haze, 1),
             "performance_after_haze": round(perf, 3) if perf is not None else None,
-            "haze_kwh": round(allowed - after_haze, 1), "lost_kwh": round(lost, 1),
+            "haze_kwh": round(allowed - after_haze + area_kwh, 1), "lost_kwh": round(lost, 1),
             "lost_rupees": round(lost * unit_value), "counts": counts,
         },
         "faults": faults, "cleanings": cleanings, "cleaning_effect": effect,

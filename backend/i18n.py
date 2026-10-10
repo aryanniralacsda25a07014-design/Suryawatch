@@ -30,6 +30,9 @@ TEXT = {
         "check.title": "Lower than expected",
         "check.msg": "Output is {loss}% below expected even though the panels were cleaned or rained on recently. Look for "
                      "new shade, a loose cable or inverter warnings.",
+        "area.title": "Low across your area - your panels are fine",
+        "area.msg": "Most SuryaWatch rooftops within {km} km were low today too ({n} roofs, middle value {median}%), so the sky "
+                    "cut the output, not dirt or a fault on your panels. Nothing to fix.",
         "cloudy": " It was a cloudy day, so this estimate is less certain.",
         "partial": " (Based on the {time} reading; the day is not over.)",
         # ---- next-days outlook
@@ -84,6 +87,9 @@ TEXT = {
         "check.title": "उम्मीद से कम",
         "check.msg": "हाल ही में पैनल साफ़ हुए या बारिश हुई, फिर भी उत्पादन अनुमान से {loss}% कम है। कोई नई छाया, ढीला तार या "
                      "इन्वर्टर की चेतावनी देखें।",
+        "area.title": "पूरे इलाके में कम – आपके पैनल ठीक हैं",
+        "area.msg": "{km} किमी के अंदर ज़्यादातर SuryaWatch छतों पर भी आज उत्पादन कम रहा ({n} छतें, बीच का मान {median}%), "
+                    "इसलिए कमी आसमान की वजह से है, आपके पैनलों की धूल या खराबी से नहीं। कुछ ठीक करने की ज़रूरत नहीं।",
         "cloudy": " आज बादल थे, इसलिए यह अनुमान थोड़ा कम पक्का है।",
         "partial": " ({time} की रीडिंग के आधार पर; दिन अभी बाकी है।)",
         "kwh": "लगभग {kwh} kWh",
