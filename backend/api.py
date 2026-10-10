@@ -29,6 +29,7 @@ from datetime import datetime
 import alerts
 import assistant
 import daily_check
+import impact
 import planner
 import reader
 import solar
@@ -202,6 +203,10 @@ def test_alert(_e, _p, m):
     return daily_check.run_for(m["sid"], os.environ.get("APP_URL"), force=True)
 
 
+def impact_totals(_e, params, _m):
+    return impact.impact(include_demo=str(params.get("demo", "")).lower() in ("1", "true", "yes"))
+
+
 def ask(event, _p, _m):
     req = body_of(event)
     ctx = req.get("context") if isinstance(req.get("context"), dict) else {}
@@ -225,6 +230,7 @@ ROUTES = [
     ("POST", rf"/systems/{SID}/alerts/test", test_alert),
     ("POST", r"/ask", ask),
     ("POST", r"/bill", read_bill),
+    ("GET", r"/impact", impact_totals),
 ]
 
 

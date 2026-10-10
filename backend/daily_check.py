@@ -2,6 +2,7 @@
 
 For every system with alert emails: build today's verdict and email the owner when there is
 something to act on (dust, fault, check), something reassuring to know (smog day), or no reading yet.
+Systems without alerts that had a reading today get their verdict saved (no email).
 Run by hand on a laptop:  python backend/daily_check.py
 """
 from __future__ import annotations
@@ -57,6 +58,12 @@ def handler(event=None, _context=None):
     for meta in store.scan_prefix("SYSTEM#", "META"):
         sid = meta["pk"].split("#", 1)[1]
         if not alerts.subscribed(sid):
+            # no email, but still save the day's verdict so history and the public impact page count it
+            if store.query(f"SYSTEM#{sid}", f"READING#{watch.today()}"):
+                try:
+                    watch.day_view(sid)
+                except Exception as exc:
+                    print(f"day check failed for {sid}: {exc}")
             continue
         try:
             results.append(run_for(sid, app_url))

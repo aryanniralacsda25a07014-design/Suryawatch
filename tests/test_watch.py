@@ -6,7 +6,7 @@ import re
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 os.environ.pop("TABLE_NAME", None)
@@ -329,6 +329,68 @@ class HindiTests(WatchApiTests):
         self.assertEqual(code, 200, plan)
         self.assertTrue(any("स्वीकृत लोड 3 kW" in n for n in plan["notes"]), plan["notes"])
         self.assertTrue(all(re.search("[\\u0900-\\u097F]", a) for a in plan["assumptions"]))
+
+
+class ImpactTests(WatchApiTests):
+    def setUp(self):
+        super().setUp()
+        import impact
+        self.impact = impact
+        impact._cache.clear()
+
+    def _day(self, sid, day, frac, e_total=None):
+        hourly = solar.expected_hourly({"lat": 28.7, "lon": 77.1, "kwp": 3}, fake_sun(28.7, 77.1, 20, 180, day, day))
+        full = solar.expected_energy_until(hourly, day)
+        r = {"time": f"{day}T18:30", "e_today_kwh": round(full * frac, 2)}
+        if e_total is not None:
+            r["e_total_kwh"] = e_total
+        self.call("POST", f"/systems/{sid}/readings", {"readings": [r]})
+        self.call("GET", f"/systems/{sid}/day", params={"date": day})
+        return r["e_today_kwh"]
+
+    def test_evening_check_saves_verdicts_without_alerts(self):
+        import daily_check
+        sid = self.make_system()
+        self.call("POST", f"/systems/{sid}/readings", {"readings": [{"time": f"{watch.today()}T18:30", "e_today_kwh": 11.5}]})
+        daily_check.handler()
+        self.assertIsNotNone(store.get(f"SYSTEM#{sid}", f"VERDICT#{watch.today()}"))
+
+    def test_units_tracked_takes_the_larger_count(self):
+        readings = [{"time": "2026-10-01T18:30", "e_total_kwh": 4000}, {"time": "2026-10-05T18:30", "e_total_kwh": 4048}]
+        verdicts = [{"final": True, "actual_kwh": 12}, {"final": True, "actual_kwh": 11}, {"final": False, "actual_kwh": 5}]
+        self.assertEqual(self.impact.units_tracked(readings, verdicts), 48)
+        self.assertEqual(self.impact.units_tracked(readings[:1], verdicts), 23)
+
+    def test_totals_skip_demo_and_hide_identity(self):
+        real = self.make_system()
+        today = date.fromisoformat(watch.today())
+        d1, d2 = (today - timedelta(days=2)).isoformat(), (today - timedelta(days=1)).isoformat()
+        made = self._day(real, d1, 0.95) + self._day(real, d2, 0.80)
+        code, demo = self.call("POST", "/systems", {"name": "Sample rooftop (demo data)", "demo": True,
+                                                    "lat": 28.6, "lon": 77.2, "kwp": 5})
+        self._day(demo["system_id"], d2, 0.9)
+        for lat in (28.6, 28.6, 28.7):          # the same roof planned twice counts once
+            self.call("POST", "/plan", {"lat": lat, "lon": 77.2, "roof_area_m2": 60, "monthly_units": 300})
+
+        code, body = self.call("GET", "/impact")
+        self.assertEqual(code, 200, body)
+        w = body["watch"]
+        self.assertEqual((w["rooftops"], w["kw"], w["days_checked"]), (1, 3.0, 2))
+        self.assertAlmostEqual(w["units"], made, places=1)
+        self.assertAlmostEqual(w["co2_kg"], made * 0.727, places=0)
+        self.assertEqual(body["demo_systems"], 1)
+        self.assertFalse(body["includes_demo"])
+        self.assertEqual(body["plan"]["roofs"], 2)
+        self.assertEqual(len(body["calendar"]), 35)
+        self.assertEqual(body["calendar"][-2]["rooftops"], 1)
+        text = json.dumps(body)
+        for secret in (real, demo["system_id"], "Test roof", "Sample rooftop", "28.7", "77.1"):
+            self.assertNotIn(secret, text)
+
+        self.impact._cache.clear()
+        body = self.call("GET", "/impact", params={"demo": "1"})[1]
+        self.assertEqual((body["watch"]["rooftops"], body["watch"]["kw"]), (2, 8.0))
+        self.assertTrue(body["includes_demo"])
 
 
 if __name__ == "__main__":

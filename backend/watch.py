@@ -57,6 +57,8 @@ def create_system(req: dict) -> dict:
         "pr_ref": solar.DEFAULT_PR,
         "created": store.now_iso(),
     }
+    if req.get("demo"):
+        meta["demo"] = True          # made-up sample data: kept out of the public impact totals
     sid = store.new_id()
     store.put(f"SYSTEM#{sid}", "META", meta)
     return {"system_id": sid, **meta}

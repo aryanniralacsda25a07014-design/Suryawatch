@@ -44,16 +44,18 @@
   }
 
   // ------------------------------------------------------------------ tabs
+  const TABS = ["plan", "watch", "impact"];
+  const tabFromHash = () => (TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "plan");
   function showTab(name) {
-    ["plan", "watch"].forEach((t) => {
-      $("view-" + t).hidden = t !== name;
-      $("tab-" + t).setAttribute("aria-selected", String(t === name));
+    TABS.forEach((x) => {
+      $("view-" + x).hidden = x !== name;
+      $("tab-" + x).setAttribute("aria-selected", String(x === name));
     });
     if (name === "plan" && map) setTimeout(() => map.invalidateSize(), 50);
+    if (name === "impact") loadImpact();
   }
-  $("tab-plan").onclick = () => { location.hash = "plan"; };
-  $("tab-watch").onclick = () => { location.hash = "watch"; };
-  window.addEventListener("hashchange", () => showTab(location.hash === "#watch" ? "watch" : "plan"));
+  TABS.forEach((x) => { $("tab-" + x).onclick = () => { location.hash = x; }; });
+  window.addEventListener("hashchange", () => showTab(tabFromHash()));
 
   // ------------------------------------------------------------------ map
   let map = null, marker = null, roof = null, drawing = false, vertices = [];
@@ -975,6 +977,152 @@
     else $("w-setup").hidden = false;
   }
 
+  // ------------------------------------------------------------------ public impact page
+  let impactData = null;
+  let impactDemo = new URLSearchParams(location.search).get("demo") === "1";
+  const co2Text = (kg) => (kg >= 1000 ? t("{n} t", { n: (kg / 1000).toFixed(1) }) : t("{n} kg", { n: n0(kg) }));
+  const units1 = (x) => (x >= 100 ? n0(x) : (Math.round(x * 10) / 10).toLocaleString("en-IN"));
+
+  async function loadImpact() {
+    const box = $("impact-body");
+    if (!impactData) box.innerHTML = `<p class="hint">${t("Loading...")}</p>`;
+    try {
+      impactData = await api("/impact" + (impactDemo ? "?demo=1" : ""));
+      renderImpact(impactData);
+    } catch (ex) {
+      box.innerHTML = `<p class="error">${esc(ex.message)}</p>`;
+    }
+  }
+
+  function tile(label, value, cls) {
+    return `<div class="stat"><div class="label">${t(label)}</div><div class="value num${cls ? " " + cls : ""}">${value}</div></div>`;
+  }
+
+  function renderImpact(d) {
+    const w = d.watch, p = d.plan;
+    const finding = (code, n, text) => {            // text: [plural, singular]
+      const st = STATUS[code];
+      return `<li class="finding"><span class="badge ${st.cls}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${st.icon}"/></svg>${t(st.label)}</span>
+        <span class="finding-n num">${n0(n)}</span><span class="finding-text">${esc(t(text[n === 1 ? 1 : 0]))}</span></li>`;
+    };
+    const demoRow = d.demo_systems ? `<label class="demo-toggle"><input type="checkbox" id="imp-demo"${impactDemo ? " checked" : ""}> ${t("Include the sample rooftop (made-up readings)")}</label>` : "";
+    const demoNote = d.includes_demo ? `<p class="note warn-note">${t("These totals include the sample rooftop. Its readings are made up for the demo, not measured.")}</p>` : "";
+    const nothing = !w.rooftops && !p.roofs;
+    const updated = new Date(d.updated).toLocaleString(LOCALE(), { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+
+    $("impact-body").innerHTML = `
+      ${demoNote}
+      ${nothing ? `<div class="card"><p>${t("No rooftops yet. Plan a roof or start watching one, and the totals appear here.")}</p></div>` : ""}
+      <section class="card">
+        <h2>${t("Rooftops SuryaWatch watches")}</h2>
+        <div class="stats">
+          ${tile("Rooftops watched", n0(w.rooftops))}
+          ${tile("Solar capacity", `${units1(w.kw)} kW`)}
+          ${tile("Units made while watched", `${units1(w.units)} kWh`, "good")}
+          ${tile("CO₂ avoided", co2Text(w.co2_kg), "good")}
+          ${tile("Worth to the owners", inr(w.rupees))}
+          ${tile("Days checked", n0(w.days_checked))}
+        </div>
+        <p class="hint">${t("Units are counted from inverter photos. CO₂ uses {f} kg per unit, India's grid average (CEA).", { f: d.co2_kg_per_kwh })}</p>
+      </section>
+
+      <div class="dash-grid">
+        <section class="card">
+          <h2>${t("What the daily checks found")}</h2>
+          <ul class="findings">
+            ${finding("smog", w.smog_days, ["days when low output was smog, not dirty panels, so nobody washed them for nothing",
+                                             "day when low output was smog, not dirty panels, so nobody washed them for nothing"])}
+            ${finding("dust", w.dust_days, ["days the panels needed cleaning", "day the panels needed cleaning"])}
+            ${finding("fault", w.fault_days, ["days with a sudden drop or an inverter error", "day with a sudden drop or an inverter error"])}
+            ${finding("healthy", w.healthy_days, ["days the panels made what the sunlight allowed", "day the panels made what the sunlight allowed"])}
+          </ul>
+          <p class="hint">${esc(t(w.recovered_kwh_day > 0
+            ? "Cleanings logged: {n}. The latest ones brought back about {kwh} kWh a day."
+            : "Cleanings logged: {n}.", { n: n0(w.cleanings), kwh: w.recovered_kwh_day }))}
+            ${esc(t("Rooftops with evening email alerts: {n}.", { n: n0(w.with_alerts) }))}</p>
+        </section>
+        <section class="card">
+          <h2>${t("Every rooftop, day by day")}</h2>
+          <p class="hint">${t("Each square is one day: the average share of possible output, after allowing for haze, across the rooftops checked that day.")}</p>
+          <div id="imp-heat"></div>
+        </section>
+      </div>
+
+      <section class="card" id="imp-units"></section>
+
+      <section class="card">
+        <h2>${t("Roofs planned")}</h2>
+        <div class="stats">
+          ${tile("Roofs planned", n0(p.roofs))}
+          ${tile("Solar they could fit", `${units1(p.kw)} kW`)}
+          ${tile("Units a year", n0(p.units_year), "good")}
+          ${tile("CO₂ they could avoid", t("{n} t/yr", { n: p.co2_tonnes_year }), "good")}
+          ${tile("Subsidy they qualify for", lakh(p.subsidy))}
+        </div>
+        <p class="hint">${t("Each roof counts once, however many times it was planned.")}</p>
+      </section>
+
+      <details class="card how"><summary>${t("How we count")}</summary><ul>
+        <li>${t("Units made: the rise of the inverter's Total counter between the first and last photo, or the sum of each evening's E-Today reading, whichever is larger.")}</li>
+        <li>${t("Worth: each owner's value of one unit (bill saving plus incentive).")}</li>
+        <li>${t("Smog, dust and fault days come from the evening check: expected output from the sun's position, forecast sunlight and the haze in the air, compared with what the panels made.")}</li>
+        <li>${t("Demo data is left out unless you include it. Totals refresh about once a minute.")}</li>
+      </ul></details>
+
+      <div class="share-row impact-foot">
+        <button type="button" id="imp-share" class="btn small ghost wa">${t("Share on WhatsApp")}</button>
+        ${demoRow}
+        <span class="hint">${esc(t("Updated {when}", { when: updated }))}</span>
+      </div>`;
+
+    const firstMonday = d.calendar.findIndex((c) => new Date(c.date + "T12:00").getDay() === 1);
+    const cal = d.calendar.slice(Math.max(0, firstMonday));     // whole weeks, so the grid starts on Monday
+    renderImpactHeat(cal);
+    const days = cal.map((c) => ({ label: niceDate(c.date, { day: "numeric", month: "short" }), value: c.units, c }));
+    if (days.some((x) => x.value > 0)) {
+      barChart($("imp-units"), days, {
+        title: t("Units made each day, all rooftops (kWh)"), labelEvery: 7,
+        tip: (x) => `<b>${esc(x.label)}</b><br>${t("{n} kWh from {r} rooftop(s)", { n: x.value, r: x.c.rooftops })}`,
+      });
+    } else {
+      $("imp-units").innerHTML = `<p class="chart-title">${t("Units made each day, all rooftops (kWh)")}</p><p class="hint">${t("No finished days in the last few weeks yet.")}</p>`;
+    }
+    if ($("imp-demo")) $("imp-demo").onchange = (e) => { impactDemo = e.target.checked; loadImpact(); };
+    $("imp-share").onclick = () => shareWhatsApp([
+      t("SuryaWatch so far"),
+      t("{n} rooftops ({kw} kW) watched: {units} units tracked, {co2} of CO₂ avoided", { n: w.rooftops, kw: units1(w.kw), units: units1(w.units), co2: co2Text(w.co2_kg) }),
+      t("{smog} smog days explained, {dust} dust warnings, {fault} possible faults caught", { smog: w.smog_days, dust: w.dust_days, fault: w.fault_days }),
+      t("{n} roofs planned: {kw} kW that could make {units} units a year", { n: p.roofs, kw: units1(p.kw), units: n0(p.units_year) }),
+      d.includes_demo ? t("(includes made-up sample data)") : "",
+      t("See it live: {link}", { link: appLink("#impact") }),
+    ].filter(Boolean).join("\n"));
+  }
+
+  function renderImpactHeat(cal) {
+    const first = new Date(cal[0].date + "T12:00");
+    const lead = (first.getDay() + 6) % 7;                     // empty slots before the first day (week starts Monday)
+    let cells = '<span class="cell future"></span>'.repeat(lead);
+    cal.forEach((c) => {
+      const nice = niceDate(c.date, { weekday: "short", day: "numeric", month: "short" });
+      if (c.performance == null) {
+        const none = `${nice}: ${t("no reading")}`;
+        cells += `<span class="cell empty static" role="img" tabindex="0" data-tip="${esc(none)}" aria-label="${esc(none)}"></span>`;
+        return;
+      }
+      let tipText = `${nice}: ${t("{pct} of possible output on average", { pct: pct(c.performance) })} · ${t("{n} kWh from {r} rooftop(s)", { n: c.units, r: c.rooftops })}`;
+      if (c.smog) tipText += ` · ${t("smog at {n} rooftop(s)", { n: c.smog })}`;
+      cells += `<span class="cell static" role="img" tabindex="0" style="background:${heatColor(c.performance)}" data-tip="${esc(tipText)}" aria-label="${esc(tipText)}"></span>`;
+    });
+    $("imp-heat").innerHTML = `<div class="heat-wrap"><div class="heat-days">${DOW.map((x) => `<span>${x ? t(x) : ""}</span>`).join("")}</div><div class="heat">${cells}</div></div>
+      <div class="heat-legend">${HEAT.map((h) => `<span><i style="background:${h.color}"></i>${t(h.label)}</span>`).join("")}<span><i style="box-shadow:inset 0 0 0 1px #c9cfc5"></i>${t("no reading")}</span></div>`;
+    $("imp-heat").querySelectorAll(".cell[data-tip]").forEach((c) => {
+      c.onmousemove = (ev) => showTip(esc(c.dataset.tip), ev);
+      c.onclick = (ev) => showTip(esc(c.dataset.tip), ev);
+      c.onmouseleave = hideTip;
+      c.onblur = hideTip;
+    });
+  }
+
   // ------------------------------------------------------------------ English | हिंदी switch
   const ORIG_TEXT = new WeakMap(), ORIG_ATTR = new WeakMap(), ATTRS = ["placeholder", "aria-label", "title"];
   const REV = Object.fromEntries(Object.entries(HI).filter(([k]) => !k.includes("{")).map(([k, v]) => [v, k]));
@@ -1017,6 +1165,7 @@
     SAID.forEach((el) => { if (el.isConnected && el._say) el.textContent = el._say[0] ? t(el._say[0], el._say[1]) : ""; });
     if (lastPlanBody) runPlan(lastPlanBody).catch(() => { /* keep the old result */ });
     if (sys && !$("w-dash").hidden) { renderHead(); loadOutlook(); loadDay(viewDate); }
+    if (impactData) renderImpact(impactData);
     renderReview();
   }
   $("lang-btn").onclick = () => setLang(LANG === "hi" ? "en" : "hi");
@@ -1025,5 +1174,5 @@
   applyStatic();
   initMap();
   initWatch();
-  showTab(location.hash === "#watch" ? "watch" : "plan");
+  showTab(tabFromHash());
 })();

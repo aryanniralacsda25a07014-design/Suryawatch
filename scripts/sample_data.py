@@ -32,7 +32,7 @@ def main():
     a = ap.parse_args()
     base = a.api.rstrip("/")
 
-    s = call(base, "POST", "/systems", {"name": "Sample rooftop (demo data)", "lat": a.lat, "lon": a.lon,
+    s = call(base, "POST", "/systems", {"name": "Sample rooftop (demo data)", "demo": True, "lat": a.lat, "lon": a.lon,
                                         "kwp": a.kwp, "tilt": 20, "facing": 180, "unit_value": 6})
     sid = s["system_id"]
     print(f"Created sample system {sid}")

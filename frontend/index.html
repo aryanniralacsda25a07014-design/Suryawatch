@@ -23,6 +23,7 @@
         <nav class="tabs" role="tablist">
           <button role="tab" id="tab-plan" aria-controls="view-plan" aria-selected="true">Plan</button>
           <button role="tab" id="tab-watch" aria-controls="view-watch" aria-selected="false">Watch</button>
+          <button role="tab" id="tab-impact" aria-controls="view-impact" aria-selected="false">Impact</button>
         </nav>
         <button type="button" id="lang-btn" class="lang-btn" lang="hi" data-dyn aria-label="हिंदी में देखें">हिंदी</button>
       </div>
@@ -224,6 +225,15 @@
           </div>
         </section>
       </div>
+    </section>
+
+    <!-- =============================================================== IMPACT (public) -->
+    <section id="view-impact" role="tabpanel" aria-labelledby="tab-impact" hidden>
+      <div class="intro">
+        <h1>What SuryaWatch has done so far</h1>
+        <p>Live totals from every rooftop SuryaWatch watches and every roof it has planned. Names, addresses and locations are never shown.</p>
+      </div>
+      <div id="impact-body"><p class="hint">Loading...</p></div>
     </section>
   </main>
 

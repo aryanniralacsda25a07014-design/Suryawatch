@@ -146,6 +146,21 @@ def scan_prefix(pk_prefix: str, sk: str) -> list[dict]:
     return [v for v in db.values() if v.get("pk", "").startswith(pk_prefix) and v.get("sk") == sk]
 
 
+def scan_all() -> list[dict]:
+    """Every item in the table (for the public impact totals; the table holds no photos)."""
+    if on_aws():
+        items, kwargs = [], {}
+        while True:
+            resp = table().scan(**kwargs)
+            items.extend(resp.get("Items", []))
+            if "LastEvaluatedKey" not in resp:
+                break
+            kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+        return from_dynamo(items)
+    with _lock:
+        return list(_local_load().values())
+
+
 def save_photo(system_id: str, data: bytes, ext: str) -> str:
     key = f"photos/{system_id}/{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{new_id()[:6]}.{ext}"
     bucket = os.environ.get("PHOTO_BUCKET")
