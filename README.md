@@ -13,7 +13,7 @@ Built for **Environmental Hacks 2026** (WeMakeDevs × AWS), **Track 03: Waste an
 
 **Live Demo:** [Open SuryaWatch](https://main.d2g6wkf6szeo52.amplifyapp.com)
 
-**Prototype Video:** [Watch the Demo](LINK)
+**Prototype Video:** [Watch the Demo](https://youtu.be/Shq7aRt1EXE)
 
 ## The problem
 
