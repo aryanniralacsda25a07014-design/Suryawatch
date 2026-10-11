@@ -2,12 +2,19 @@
 (function () {
   "use strict";
 
-  const API = (window.SURYAWATCH_API || "").replace(/\/$/, "");
   const $ = (id) => document.getElementById(id);
   const DELHI = [28.6139, 77.209];
   const SQFT_PER_M2 = 10.7639;
 
-  if (!API) $("api-banner").hidden = false;
+  // Server address: built in (config.js on the website), or pasted once inside the app (the APK) and remembered.
+  const API_KEY = "suryawatch.api";
+  const APP_SHELL = !/^https?:$/.test(location.protocol);     // opened as a file or inside an Android app
+  const cleanUrl = (u) => String(u || "").trim().replace(/\/+$/, "");
+  const storedApi = (() => { try { return localStorage.getItem(API_KEY) || ""; } catch (_) { return ""; } })();
+  const API = cleanUrl(storedApi || window.SURYAWATCH_API);
+  // Public web address for links shared on WhatsApp (a file:// or app address means nothing to others)
+  let WEB = cleanUrl(window.SURYAWATCH_WEB) || (APP_SHELL ? "" : location.origin + location.pathname.replace(/\/[^/]*$/, ""));
+  if (!WEB && /\/api$/.test(API)) WEB = API.replace(/\/api$/, "");          // the laptop test server
 
   // ------------------------------------------------------------------ language (English | हिंदी)
   // Every visible string is written in English and passed through t(); i18n.js holds the Hindi.
@@ -234,7 +241,7 @@
   }
 
   // ------------------------------------------------------------------ sharing (WhatsApp)
-  const appLink = (q) => `${location.origin}${location.pathname}${q || ""}`;
+  const appLink = (q) => `${WEB}/${q || ""}`;
   function shareWhatsApp(text) {
     window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
   }
@@ -804,7 +811,7 @@
   $("d-next").onclick = () => { if (viewDate < todayStr()) loadDay(shiftDay(1)); };
   $("d-date").onchange = () => { if ($("d-date").value) loadDay($("d-date").value); };
   $("d-share").onclick = async () => {
-    const link = `${location.origin}${location.pathname}?system=${sys.system_id}#watch`;
+    const link = appLink(`?system=${sys.system_id}#watch`);
     try { await navigator.clipboard.writeText(link); $("d-share").textContent = t("Link copied"); } catch (_) { prompt(t("Copy this link"), link); }
     setTimeout(() => { $("d-share").textContent = t("Copy link"); }, 2000);
   };
@@ -1307,7 +1314,8 @@
   $("rep-from").onchange = $("rep-to").onchange = () => { $("rep-preset").value = "custom"; loadReport(); };
   $("rep-back").onclick = () => { location.hash = "watch"; };
   $("d-report").onclick = () => { location.hash = "report"; };
-  $("rep-print").onclick = () => window.print();
+  // phones' in-app web views cannot print, so the app opens the same report in the browser to print it there
+  $("rep-print").onclick = () => (APP_SHELL && reportData && WEB ? window.open(reportLink(reportData), "_blank") : window.print());
   const reportLink = (r) => appLink(`?system=${r.system.system_id}&from=${r.from}&to=${r.to}#report`);
   $("rep-share").onclick = () => {
     if (!reportData) return;
@@ -1506,6 +1514,38 @@
     renderReview();
   }
   $("lang-btn").onclick = () => setLang(LANG === "hi" ? "en" : "hi");
+
+  // ------------------------------------------------------------------ server address (set once inside the app)
+  function showServerBox(prefill) {
+    $("api-banner").hidden = false;
+    $("api-url").value = prefill || "";
+    $("api-url").focus();
+  }
+  $("api-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const url = cleanUrl($("api-url").value);
+    const msg = $("api-msg");
+    if (!/^https?:\/\/\S+$/.test(url)) { say(msg, "Paste the full address, starting with https://"); return; }
+    say(msg, "Checking the server...");
+    try {
+      const res = await fetch(url + "/health");
+      const h = await res.json();
+      if (!res.ok || !h.ok) throw new Error("bad");
+      try { localStorage.setItem(API_KEY, url); } catch (_) { /* private mode: works until the app closes */ }
+      location.reload();
+    } catch (_) {
+      say(msg, "Could not reach SuryaWatch at that address. Check it and your internet connection.");
+    }
+  });
+  if (!API) showServerBox("");
+  if (APP_SHELL) {
+    $("server-line").hidden = false;
+    $("server-url").textContent = API || "–";
+    $("server-change").onclick = () => showServerBox(API);
+  }
+  if (API && !WEB) {      // inside the app: ask the server for the public web address to put in shared links
+    api("/health").then((h) => { if (h.app_url) WEB = cleanUrl(h.app_url); }).catch(() => { /* links fall back to the app */ });
+  }
 
   // ------------------------------------------------------------------ boot
   applyStatic();

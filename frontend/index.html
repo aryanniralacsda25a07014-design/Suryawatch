@@ -30,7 +30,14 @@
     </div>
   </header>
 
-  <div id="api-banner" class="banner" hidden>The app is not connected to its server yet. Run <code>scripts/deploy.sh</code> to set it up.</div>
+  <div id="api-banner" class="banner server-box" hidden>
+    <p><b>The app is not connected to its server yet.</b> Paste the server address (ApiUrl) from the AWS deployment.</p>
+    <form id="api-form" class="search-row" novalidate>
+      <input id="api-url" type="url" inputmode="url" autocomplete="off" placeholder="https://xxxx.execute-api.us-east-1.amazonaws.com" aria-label="Server address">
+      <button type="submit" class="btn small">Connect</button>
+    </form>
+    <p id="api-msg" class="hint" role="status"></p>
+  </div>
 
   <main class="wrap">
     <!-- =============================================================== PLAN -->
@@ -267,6 +274,7 @@
   <footer class="wrap foot">
     <p>Sunlight: Open-Meteo and NASA POWER. Subsidies: PM Surya Ghar and Delhi Solar Policy 2024. Estimates only; get vendor quotes before you buy.</p>
     <p>Built on AWS for Environmental Hacks 2026.</p>
+    <p id="server-line" class="hint" hidden>Server: <span id="server-url" data-dyn></span> · <button type="button" id="server-change" class="link-btn">Change</button></p>
   </footer>
 
   <div id="tip" class="tip" role="tooltip" data-dyn hidden></div>

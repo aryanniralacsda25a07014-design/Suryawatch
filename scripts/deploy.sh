@@ -50,3 +50,7 @@ echo
 echo "Done."
 echo "  API:      $API_URL/health"
 echo "  Web app:  $WEB_URL   (live in about a minute)"
+echo
+echo "For the Android app (APK): send Aryan these two lines, or paste the first into the app when it asks."
+echo "  ApiUrl: $API_URL"
+echo "  WebUrl: $WEB_URL"

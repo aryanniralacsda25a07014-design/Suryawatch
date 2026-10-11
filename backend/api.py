@@ -86,7 +86,7 @@ def num(params: dict, key: str, default=None, lo=None, hi=None) -> float:
 # --------------------------------------------------------------------------- Plan
 def health(_e, _p, _m):
     return {"ok": True, "service": "suryawatch", "stage": 4, "storage": "aws" if store.on_aws() else "local",
-            "alerts": "sns" if alerts.topic() else "local"}
+            "alerts": "sns" if alerts.topic() else "local", "app_url": os.environ.get("APP_URL")}
 
 
 def make_plan(event, _p, _m):
